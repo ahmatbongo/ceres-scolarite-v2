@@ -1,0 +1,7 @@
+[build]
+  command = "npm install"
+  functions = "netlify/functions"
+  publish = "public"
+
+[env.production]
+  environment = { RESEND_API_KEY = "", SUPABASE_URL = "", SUPABASE_ANON_KEY = "" }
