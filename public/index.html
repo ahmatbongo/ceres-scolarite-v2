@@ -3,83 +3,443 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CERES Scolarité</title>
+    <title>CERES Scolarité - Plateforme de Gestion</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; }
-        header {
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        header h1 {
+            color: #667eea;
+            font-size: 28px;
+            margin: 0;
+        }
+
+        .demo-badge {
+            background: #10b981;
             color: white;
-            padding: 4rem 2rem;
-            text-align: center;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
         }
-        header h1 { font-size: 2.5rem; margin-bottom: 0.5rem; }
-        header p { font-size: 1.2rem; opacity: 0.9; }
-        .features {
-            max-width: 900px;
-            margin: 3rem auto;
-            padding: 2rem;
-        }
-        .features h2 { text-align: center; margin-bottom: 2rem; color: #333; }
-        .feature-list {
-            list-style: none;
+
+        .content {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 1rem;
+            gap: 20px;
+            margin-bottom: 30px;
         }
-        .feature-list li {
-            padding: 1rem;
-            background: #f5f5f5;
-            border-radius: 5px;
+
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 25px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
         }
-        .feature-list li:before {
-            content: "✓ ";
+
+        .card h2 {
             color: #667eea;
-            font-weight: bold;
-            margin-right: 0.5rem;
+            margin-bottom: 20px;
+            font-size: 20px;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
         }
-        .cta-section {
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-family: inherit;
+            font-size: 14px;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 5px rgba(102, 126, 234, 0.3);
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: transform 0.2s;
+            width: 100%;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
             text-align: center;
-            padding: 2rem;
-            margin: 2rem 0;
         }
-        .cta-button {
-            display: inline-block;
+
+        .stat-box .number {
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .stat-box .label {
+            font-size: 13px;
+            opacity: 0.9;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        th {
+            background: #f0f0f0;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            color: #333;
+            border-bottom: 2px solid #667eea;
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+        }
+
+        tr:hover {
+            background: #f9f9f9;
+        }
+
+        .action-btn {
             background: #667eea;
             color: white;
-            padding: 1rem 2rem;
-            border-radius: 5px;
-            text-decoration: none;
-            font-size: 1.1rem;
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
             cursor: pointer;
+            font-size: 12px;
+            margin-right: 5px;
+            transition: all 0.2s;
         }
-        .cta-button:hover { background: #764ba2; }
-        @media (max-width: 600px) {
-            header h1 { font-size: 1.8rem; }
-            .feature-list { grid-template-columns: 1fr; }
+
+        .action-btn:hover {
+            background: #764ba2;
+        }
+
+        .delete-btn {
+            background: #ef4444;
+        }
+
+        .delete-btn:hover {
+            background: #dc2626;
+        }
+
+        .success-msg {
+            background: #d1fae5;
+            color: #065f46;
+            padding: 12px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            display: none;
+        }
+
+        .success-msg.show {
+            display: block;
+        }
+
+        @media (max-width: 768px) {
+            .content {
+                grid-template-columns: 1fr;
+            }
+
+            header {
+                flex-direction: column;
+                gap: 15px;
+                text-align: center;
+            }
+
+            .stats {
+                grid-template-columns: 1fr;
+            }
+
+            table {
+                font-size: 12px;
+            }
+
+            th, td {
+                padding: 8px;
+            }
+        }
+
+        .full-width {
+            grid-column: 1 / -1;
+        }
+
+        .footer {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            color: #666;
+            font-size: 13px;
         }
     </style>
 </head>
 <body>
-    <header>
-        <h1>CERES Scolarité</h1>
-        <p>Plateforme de gestion d'établissements scolaires</p>
-    </header>
+    <div class="container">
+        <header>
+            <h1>📚 CERES Scolarité</h1>
+            <div class="demo-badge">MODE DÉMO</div>
+        </header>
 
-    <div class="features">
-        <h2>Avantages de CERES</h2>
-        <ul class="feature-list">
-            <li>Gestion centralisée de tous les établissements</li>
-            <li>Interface intuitive et facile d'utilisation</li>
-            <li>Données sécurisées et protégées</li>
-            <li>Support complet et assistance 24/7</li>
-            <li>Formules flexibles adaptées à vos besoins</li>
-            <li>Rapports et statistiques en temps réel</li>
-        </ul>
+        <div class="content">
+            <!-- Formulaire -->
+            <div class="card">
+                <h2>Ajouter un Établissement</h2>
+                <div class="success-msg" id="successMsg">✓ Établissement ajouté avec succès!</div>
+
+                <div class="form-group">
+                    <label>Nom de l'établissement</label>
+                    <input type="text" id="nomEtab" placeholder="ex: Lycée de N'Djaména">
+                </div>
+
+                <div class="form-group">
+                    <label>Ville</label>
+                    <input type="text" id="ville" placeholder="ex: N'Djaména">
+                </div>
+
+                <div class="form-group">
+                    <label>Province/Région</label>
+                    <input type="text" id="province" placeholder="ex: Logone Occidental">
+                </div>
+
+                <div class="form-group">
+                    <label>Directeur</label>
+                    <input type="text" id="directeur" placeholder="ex: Maïmos Arsène">
+                </div>
+
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" id="email" placeholder="ex: contact@etablissement.td">
+                </div>
+
+                <div class="form-group">
+                    <label>Formule</label>
+                    <select id="formule">
+                        <option>-- Sélectionner une formule --</option>
+                        <option>Starter - 50 000 FCFA</option>
+                        <option>Pro - 150 000 FCFA</option>
+                        <option>Enterprise - Sur devis</option>
+                    </select>
+                </div>
+
+                <button onclick="ajouterEtablissement()">Ajouter l'établissement</button>
+            </div>
+
+            <!-- Statistiques -->
+            <div class="card">
+                <h2>Tableau de Bord</h2>
+                <div class="stats">
+                    <div class="stat-box">
+                        <div class="number" id="nbEtab">5</div>
+                        <div class="label">Établissements</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="number" id="nbEleves">2 547</div>
+                        <div class="label">Élèves Inscrits</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="number" id="nbProfs">185</div>
+                        <div class="label">Enseignants</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="number">12</div>
+                        <div class="label">Classes</div>
+                    </div>
+                </div>
+
+                <h3 style="color: #667eea; margin-top: 20px; margin-bottom: 10px; font-size: 16px;">Fonctionnalités Disponibles</h3>
+                <ul style="list-style-position: inside; color: #666; line-height: 1.8;">
+                    <li>✓ Gestion centralisée des établissements</li>
+                    <li>✓ Gestion des élèves et inscriptions</li>
+                    <li>✓ Gestion du personnel enseignant</li>
+                    <li>✓ Planification des classes et emplois du temps</li>
+                    <li>✓ Suivi des résultats scolaires</li>
+                    <li>✓ Rapports et statistiques en temps réel</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Liste des établissements -->
+        <div class="card full-width">
+            <h2>Établissements Enregistrés</h2>
+            <table id="tableEtablissements">
+                <thead>
+                    <tr>
+                        <th>Nom</th>
+                        <th>Ville</th>
+                        <th>Directeur</th>
+                        <th>Formule</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody">
+                    <tr>
+                        <td>Lycée de N'Djaména</td>
+                        <td>N'Djaména</td>
+                        <td>Maïmos Arsène</td>
+                        <td>Pro</td>
+                        <td><button class="action-btn delete-btn" onclick="supprimerLigne(this)">Supprimer</button></td>
+                    </tr>
+                    <tr>
+                        <td>Collège Logone</td>
+                        <td>Logone</td>
+                        <td>Ahmed Hassan</td>
+                        <td>Starter</td>
+                        <td><button class="action-btn delete-btn" onclick="supprimerLigne(this)">Supprimer</button></td>
+                    </tr>
+                    <tr>
+                        <td>École Moundou</td>
+                        <td>Moundou</td>
+                        <td>Fatou Diallo</td>
+                        <td>Pro</td>
+                        <td><button class="action-btn delete-btn" onclick="supprimerLigne(this)">Supprimer</button></td>
+                    </tr>
+                    <tr>
+                        <td>Lycée Sarh</td>
+                        <td>Sarh</td>
+                        <td>Ibrahim Malik</td>
+                        <td>Starter</td>
+                        <td><button class="action-btn delete-btn" onclick="supprimerLigne(this)">Supprimer</button></td>
+                    </tr>
+                    <tr>
+                        <td>École Abéché</td>
+                        <td>Abéché</td>
+                        <td>Zainab Ahmed</td>
+                        <td>Pro</td>
+                        <td><button class="action-btn delete-btn" onclick="supprimerLigne(this)">Supprimer</button></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="footer">
+            <p>CERES Scolarité - Plateforme de Gestion d'Établissements Scolaires | Mode Démonstration</p>
+            <p style="margin-top: 10px; font-size: 11px;">© 2026 CERES - Tous droits réservés</p>
+        </div>
     </div>
 
-    <div class="cta-section">
-        <a href="demander-etablissement.html" class="cta-button">Demander votre établissement</a>
-    </div>
+    <script>
+        function ajouterEtablissement() {
+            const nom = document.getElementById('nomEtab').value;
+            const ville = document.getElementById('ville').value;
+            const province = document.getElementById('province').value;
+            const directeur = document.getElementById('directeur').value;
+            const formule = document.getElementById('formule').value;
+
+            if (!nom || !ville || !province || !directeur || formule === '-- Sélectionner une formule --') {
+                alert('Veuillez remplir tous les champs');
+                return;
+            }
+
+            const tbody = document.getElementById('tbody');
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${nom}</td>
+                <td>${ville}</td>
+                <td>${directeur}</td>
+                <td>${formule.split(' - ')[0]}</td>
+                <td><button class="action-btn delete-btn" onclick="supprimerLigne(this)">Supprimer</button></td>
+            `;
+            tbody.appendChild(row);
+
+            // Afficher le message de succès
+            const successMsg = document.getElementById('successMsg');
+            successMsg.classList.add('show');
+            setTimeout(() => successMsg.classList.remove('show'), 3000);
+
+            // Réinitialiser le formulaire
+            document.getElementById('nomEtab').value = '';
+            document.getElementById('ville').value = '';
+            document.getElementById('province').value = '';
+            document.getElementById('directeur').value = '';
+            document.getElementById('formule').value = '-- Sélectionner une formule --';
+            document.getElementById('email').value = '';
+
+            // Mettre à jour le compteur
+            const nbEtab = document.getElementById('tbody').rows.length;
+            document.getElementById('nbEtab').textContent = nbEtab;
+        }
+
+        function supprimerLigne(btn) {
+            if (confirm('Êtes-vous sûr de vouloir supprimer cet établissement?')) {
+                btn.parentElement.parentElement.remove();
+                const nbEtab = document.getElementById('tbody').rows.length;
+                document.getElementById('nbEtab').textContent = nbEtab;
+            }
+        }
+
+        // Appuyer sur Entrée pour ajouter
+        document.getElementById('formule').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                ajouterEtablissement();
+            }
+        });
+    </script>
 </body>
 </html>
