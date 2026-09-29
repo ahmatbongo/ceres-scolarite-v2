@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CERES Scolarité</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; }
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 4rem 2rem;
+            text-align: center;
+        }
+        header h1 { font-size: 2.5rem; margin-bottom: 0.5rem; }
+        header p { font-size: 1.2rem; opacity: 0.9; }
+        .features {
+            max-width: 900px;
+            margin: 3rem auto;
+            padding: 2rem;
+        }
+        .features h2 { text-align: center; margin-bottom: 2rem; color: #333; }
+        .feature-list {
+            list-style: none;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+        .feature-list li {
+            padding: 1rem;
+            background: #f5f5f5;
+            border-radius: 5px;
+        }
+        .feature-list li:before {
+            content: "✓ ";
+            color: #667eea;
+            font-weight: bold;
+            margin-right: 0.5rem;
+        }
+        .cta-section {
+            text-align: center;
+            padding: 2rem;
+            margin: 2rem 0;
+        }
+        .cta-button {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 5px;
+            text-decoration: none;
+            font-size: 1.1rem;
+            cursor: pointer;
+        }
+        .cta-button:hover { background: #764ba2; }
+        @media (max-width: 600px) {
+            header h1 { font-size: 1.8rem; }
+            .feature-list { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>CERES Scolarité</h1>
+        <p>Plateforme de gestion d'établissements scolaires</p>
+    </header>
+
+    <div class="features">
+        <h2>Avantages de CERES</h2>
+        <ul class="feature-list">
+            <li>Gestion centralisée de tous les établissements</li>
+            <li>Interface intuitive et facile d'utilisation</li>
+            <li>Données sécurisées et protégées</li>
+            <li>Support complet et assistance 24/7</li>
+            <li>Formules flexibles adaptées à vos besoins</li>
+            <li>Rapports et statistiques en temps réel</li>
+        </ul>
+    </div>
+
+    <div class="cta-section">
+        <a href="demander-etablissement.html" class="cta-button">Demander votre établissement</a>
+    </div>
+</body>
+</html>
