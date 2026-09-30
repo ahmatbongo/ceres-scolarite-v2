@@ -1890,14 +1890,106 @@ function ElevesTab({ data, setData, moi, rafraichirDonnees }) {
                         React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))))))));
 }
 /* ------------------------------------------------------------------ */
+/* Reçu imprimable / PDF (P149) — s'ouvre dans une fenêtre d'impression */
+/* ------------------------------------------------------------------ */
+function echapperHtml(v) {
+    return String(v === null || v === undefined ? "" : v)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+function htmlRecuImprimable({ paiement, eleve, classe, nomEtablissement, duplicata }) {
+    const e = echapperHtml;
+    const nomEleve = eleve ? `${eleve.prenom || ""} ${eleve.nom || ""}`.trim() : "Élève";
+    const lignes = [
+        ["Élève", nomEleve],
+        ["Matricule", eleve && eleve.matricule ? eleve.matricule : "—"],
+        ["Classe", classe ? `${classe.nom}${classe.annee ? " (" + classe.annee + ")" : ""}` : "—"],
+        ["Objet du paiement", paiement.libelleEcheance || "—"],
+        ["Mode de paiement", paiement.mode || "—"],
+        ["Référence", paiement.reference || "—"],
+        ["Date", formatDateHeureFR(paiement.date)],
+        ["Encaissé par", paiement.caissier || "—"],
+    ];
+    return `<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<title>Reçu ${e(paiement.numeroRecu)}</title>
+<style>
+  @page { size: A5 portrait; margin: 12mm; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #1a2540; margin: 0; padding: 0; }
+  .cadre { border: 2px solid #1a2540; padding: 20px 24px; width: 100%; position: relative; }
+  h1 { font-size: 22px; margin: 0; text-align: center; letter-spacing: .5px; }
+  .ecole { text-align: center; font-size: 22px; font-weight: bold; margin: 0 0 4px; }
+  .sous { text-align: center; font-size: 14px; color: #555; margin-bottom: 10px; }
+  .num { text-align: center; font-family: "Courier New", monospace; font-size: 22px; font-weight: bold; margin: 8px 0 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 16px; }
+  td { padding: 9px 6px; border-bottom: 1px solid #ddd; vertical-align: top; }
+  td:first-child { color: #555; width: 38%; }
+  .montant { margin: 18px 0 6px; text-align: right; font-size: 28px; font-weight: bold; }
+  .signature { display: flex; justify-content: space-between; margin-top: 44px; font-size: 14px; color: #555; }
+  .signature div { width: 45%; border-top: 1px solid #999; padding-top: 4px; text-align: center; }
+  .pied { margin-top: 16px; font-size: 12px; color: #777; text-align: center; }
+  .filigrane { position: absolute; top: 40%; left: 0; right: 0; text-align: center; font-size: 72px; font-weight: bold; color: rgba(180,0,0,.13); transform: rotate(-20deg); pointer-events: none; }
+  .barre { text-align: center; margin: 10px 0; }
+  .barre button { font-size: 14px; padding: 8px 18px; cursor: pointer; }
+  @media print { .barre { display: none; } }
+</style></head><body>
+<div class="barre"><button onclick="window.print()">Imprimer / Enregistrer en PDF</button></div>
+<div class="cadre">
+  ${duplicata ? '<div class="filigrane">DUPLICATA</div>' : ""}
+  <p class="ecole">${e(nomEtablissement)}</p>
+  <div class="sous">Reçu de paiement${duplicata ? " — DUPLICATA (copie du reçu original)" : ""}</div>
+  <h1>REÇU N°</h1>
+  <div class="num">${e(paiement.numeroRecu)}</div>
+  <table>${lignes.map(([k, v]) => `<tr><td>${e(k)}</td><td>${e(v)}</td></tr>`).join("")}</table>
+  <div class="montant">${e(formatFCFA(paiement.montant))}</div>
+  <div class="signature"><div>Le parent / payeur</div><div>Cachet et signature de l'établissement</div></div>
+  <div class="pied">Reçu émis par CERES Scolarité — un reçu émis n'est jamais modifié ni supprimé.</div>
+</div>
+</body></html>`;
+}
+// fenetre : à ouvrir SYNCHRONEMENT au clic (sinon le navigateur bloque la fenêtre) ;
+// on la passe ici une fois les données prêtes.
+function ouvrirFenetreRecu() {
+    const w = window.open("", "_blank");
+    if (w) {
+        w.document.open();
+        w.document.write("<p style=\"font-family:Arial;padding:20px\">Préparation du reçu…</p>");
+        w.document.close();
+    }
+    return w;
+}
+function afficherRecuImprimable(fenetre, infos) {
+    const html = htmlRecuImprimable(infos);
+    if (!fenetre || fenetre.closed) {
+        return false;
+    }
+    fenetre.document.open();
+    fenetre.document.write(html);
+    fenetre.document.close();
+    fenetre.focus();
+    return true;
+}
+function nomEtablissementPourRecu(etablissement, modeDemo) {
+    if (etablissement && etablissement.nom)
+        return etablissement.nom;
+    return modeDemo ? "École d'entraînement — données fictives" : "Établissement";
+}
+/* ------------------------------------------------------------------ */
 /* Reçu — carte visuelle immuable                                     */
 /* ------------------------------------------------------------------ */
-function ReceiptCard({ paiement, eleve }) {
+function ReceiptCard({ paiement, eleve, classe, etablissement, modeDemo }) {
+    const nomEtab = nomEtablissementPourRecu(etablissement, modeDemo);
+    const imprimer = () => {
+        const w = ouvrirFenetreRecu();
+        if (!afficherRecuImprimable(w, { paiement, eleve, classe, nomEtablissement: nomEtab, duplicata: false })) {
+            alert("Votre navigateur a bloqué la fenêtre du reçu. Autorisez les fenêtres pop-up pour ce site, puis réessayez.");
+        }
+    };
     return (React.createElement("div", { className: "rounded-lg p-4", style: { border: `1.5px dashed ${C.goldLight}`, background: "#fffdf8" } },
         React.createElement("div", { className: "mb-2 flex items-center justify-between" },
             React.createElement("span", { style: { fontFamily: "'Fraunces', serif", fontWeight: 600, color: C.navy } }, "CERES Scolarit\u00E9"),
             React.createElement("span", { className: "text-xs", style: { fontFamily: "'IBM Plex Mono', monospace", color: C.gold, fontWeight: 600 } }, paiement.numeroRecu)),
-        React.createElement("div", { className: "text-xs", style: { color: C.muted } }, "\u00C9cole d'entra\u00EEnement \u2014 donn\u00E9es fictives"),
+        React.createElement("div", { className: "text-xs", style: { color: C.muted } }, nomEtab),
         React.createElement("div", { className: "my-2 border-t", style: { borderColor: C.border } }),
         React.createElement("div", { className: "text-sm" },
             React.createElement("div", null,
@@ -1917,7 +2009,9 @@ function ReceiptCard({ paiement, eleve }) {
                 " \u00B7 encaiss\u00E9 par ",
                 paiement.caissier || "—")),
         React.createElement("div", { className: "mt-2 text-right" },
-            React.createElement("span", { style: { fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 18, color: C.navy } }, formatFCFA(paiement.montant)))));
+            React.createElement("span", { style: { fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 18, color: C.navy } }, formatFCFA(paiement.montant))),
+        React.createElement("div", { className: "mt-2 text-right" },
+            React.createElement("button", { className: "ceres-tapline text-xs", style: { color: C.navy, fontWeight: 600 }, onClick: imprimer }, "Imprimer / Enregistrer en PDF"))));
 }
 /* ------------------------------------------------------------------ */
 /* P1-25 — Bordereau journalier de caisse par caissier                */
@@ -2197,7 +2291,7 @@ function AlerteCaisseP126({ alerte, role, onOuvrirControle, onAccorderDerogation
 }
 /* Onglet : Encaissement                                              */
 /* ------------------------------------------------------------------ */
-function EncaissementTab({ data, moi, role, blocageCaisse, cloturesVerrouillees, rafraichirDonnees }) {
+function EncaissementTab({ data, moi, role, blocageCaisse, cloturesVerrouillees, rafraichirDonnees, etablissement, modeDemo }) {
     const [eleveId, setEleveId] = useState("");
     const [echeanceId, setEcheanceId] = useState("");
     const [montant, setMontant] = useState("");
@@ -2370,25 +2464,42 @@ function EncaissementTab({ data, moi, role, blocageCaisse, cloturesVerrouillees,
         React.createElement("div", null,
             React.createElement(SectionTitle, { sub: "Contr\u00F4lez le re\u00E7u avant de le remettre." }, "Dernier re\u00E7u"),
             !dernierRecu && React.createElement(Banner, { tone: "info" }, "Le re\u00E7u appara\u00EEtra ici apr\u00E8s un encaissement."),
-            dernierRecu && React.createElement(ReceiptCard, { paiement: dernierRecu, eleve: data.eleves.find((e) => e.id === dernierRecu.eleveId) })),
+            dernierRecu && React.createElement(ReceiptCard, { paiement: dernierRecu, eleve: data.eleves.find((e) => e.id === dernierRecu.eleveId), classe: (data.classes.find((c) => c.id === (data.eleves.find((e) => e.id === dernierRecu.eleveId) || {}).classeId)), etablissement: etablissement, modeDemo: modeDemo })),
         React.createElement(BordereauCaissiers, { data: data, moi: moi, role: role })));
 }
 /* ------------------------------------------------------------------ */
 /* Onglet : Reçus (historique immuable)                                */
 /* ------------------------------------------------------------------ */
-function RecusTab({ data, moi, rafraichirDonnees }) {
+function RecusTab({ data, moi, rafraichirDonnees, etablissement, modeDemo }) {
     const [envoiDuplicata, setEnvoiDuplicata] = useState(null);
     const [messageDuplicata, setMessageDuplicata] = useState("");
     const paiementsTries = [...data.paiements].sort((a, b) => (a.date < b.date ? 1 : -1));
+    const infosRecu = (p, duplicata) => {
+        const eleve = data.eleves.find((e) => e.id === p.eleveId);
+        const classe = eleve ? data.classes.find((c) => c.id === eleve.classeId) : null;
+        return { paiement: p, eleve, classe, nomEtablissement: nomEtablissementPourRecu(etablissement, modeDemo), duplicata };
+    };
+    const imprimerOriginal = (p) => {
+        const w = ouvrirFenetreRecu();
+        if (!afficherRecuImprimable(w, infosRecu(p, false))) {
+            setMessageDuplicata("Erreur : le navigateur a bloqué la fenêtre du reçu. Autorisez les fenêtres pop-up pour ce site, puis réessayez.");
+        }
+    };
     const demanderDuplicata = async (paiementId, numeroRecu) => {
+        const p = data.paiements.find((x) => x.id === paiementId);
+        const fenetre = ouvrirFenetreRecu(); // ouverte tout de suite, avant l'appel réseau
         setEnvoiDuplicata(paiementId);
         setMessageDuplicata("");
         try {
             await appelerRpc("demander_duplicata_recu", { p_paiement_id: paiementId, p_utilisateur_id: moi === null || moi === void 0 ? void 0 : moi.id });
+            if (p)
+                afficherRecuImprimable(fenetre, infosRecu(p, true));
             await rafraichirDonnees();
             setMessageDuplicata(`Duplicata de ${numeroRecu} enregistré \u2014 c'est bien le même numéro qui figure sur ce reçu, aucun nouveau numéro n'a été créé.`);
         }
         catch (e) {
+            if (fenetre && !fenetre.closed)
+                fenetre.close();
             setMessageDuplicata("Erreur : " + String((e === null || e === void 0 ? void 0 : e.message) || e));
         }
         finally {
@@ -2426,6 +2537,7 @@ function RecusTab({ data, moi, rafraichirDonnees }) {
                         corrections.length > 0 && (React.createElement("div", { className: "text-xs", style: { color: C.warn } },
                             corrections.length,
                             " correction(s) li\u00E9e(s)")),
+                        React.createElement("button", { className: "ceres-tapline mt-1 mr-3 text-xs", style: { color: C.navy, fontWeight: 600 }, onClick: () => imprimerOriginal(p) }, "Imprimer le re\u00E7u"),
                         React.createElement("button", { className: "ceres-tapline mt-1 text-xs", style: { color: C.navy }, disabled: envoiDuplicata === p.id, onClick: () => demanderDuplicata(p.id, p.numeroRecu) }, "R\u00E9imprimer (duplicata)")))));
         }))));
 }
@@ -6963,8 +7075,8 @@ function CeresNoyauFinancier() {
             activeTab === "eleves" && React.createElement(ElevesTab, { data: data, setData: setData, moi: profil, rafraichirDonnees: rafraichirDonnees }),
             activeTab === "import" && React.createElement(ImportTab, { data: data, moi: profil, rafraichirDonnees: rafraichirDonnees }),
             activeTab === "passage-annuel" && React.createElement(PassageAnnuelTab, { data: data, moi: profil, rafraichirDonnees: rafraichirDonnees }),
-            activeTab === "encaissement" && (React.createElement(EncaissementTab, { data: data, moi: profil, role: role, blocageCaisse: blocageCaisse, cloturesVerrouillees: cloturesVerrouillees, rafraichirDonnees: rafraichirDonnees })),
-            activeTab === "recus" && React.createElement(RecusTab, { data: data, moi: profil, rafraichirDonnees: rafraichirDonnees }),
+            activeTab === "encaissement" && (React.createElement(EncaissementTab, { data: data, moi: profil, role: role, blocageCaisse: blocageCaisse, cloturesVerrouillees: cloturesVerrouillees, rafraichirDonnees: rafraichirDonnees, etablissement: etablissementActuel, modeDemo: (profil && profil.modeDemo) === true })),
+            activeTab === "recus" && React.createElement(RecusTab, { data: data, moi: profil, rafraichirDonnees: rafraichirDonnees, etablissement: etablissementActuel, modeDemo: (profil && profil.modeDemo) === true }),
             activeTab === "corrections" && React.createElement(CorrectionsTab, { data: data, moi: profil, rafraichirDonnees: rafraichirDonnees }),
             activeTab === "recouvrement" && React.createElement(RecouvrementTab, { data: data, moi: profil, rafraichirDonnees: rafraichirDonnees, cibleInitiale: cibleRecouvrement, onCibleConsommee: () => setCibleRecouvrement(null) }),
             activeTab === "rapprochement" && React.createElement(RapprochementTab, { moi: profil, data: data }),
