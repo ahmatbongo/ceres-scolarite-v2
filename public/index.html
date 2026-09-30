@@ -506,7 +506,10 @@ async function synchroniserAvecSupabase(prev, next) {
     // P139 : les échéances sont créées et modifiées par les fonctions serveur.
     // Ne jamais réécrire un grilleSnapshot potentiellement périmé lors d'une
     // sauvegarde sans rapport : il pourrait ressusciter une échéance retirée.
-    await upsertTable("avantages", next.avantages);
+    // P151 : seules les remises NOUVELLES sont envoyées — une remise déjà accordée
+    // est immuable côté base (journal + verrou), inutile de la renvoyer.
+    const anciennesRemises = new Set(prev.avantages.map((a) => a.id));
+    await upsertTable("avantages", next.avantages.filter((a) => !anciennesRemises.has(a.id)));
     // paiements et corrections ne passent plus par ici (P0-11/P0-17) : ils
     // sont créés exclusivement via les fonctions serveur enregistrer_paiements,
     // soumettre_correction et approuver_correction, qui revérifient tout
@@ -1591,6 +1594,12 @@ function ElevesTab({ data, setData, moi, rafraichirDonnees }) {
             return setErreur("Le montant de l'avantage doit être supérieur à 0.");
         if (!avantageForm.motif.trim() || !avantageForm.autorisePar.trim())
             return setErreur("Le motif et la personne ayant autorisé sont obligatoires.");
+        // P151 : plafond — une remise ne peut pas dépasser ce qui reste à devoir
+        // sur la tranche après les avantages déjà accordés (la base le refuse aussi).
+        const eleveCible = data.eleves.find((e) => e.id === eleveId);
+        const trancheCible = eleveCible ? computeDossier(eleveCible, data).tranches.find((t) => t.echeanceId === avantageForm.echeanceId) : null;
+        if (trancheCible && montant > trancheCible.net)
+            return setErreur(`Cette remise dépasse le montant de la tranche : il reste ${formatFCFA(trancheCible.net)} après les avantages déjà accordés.`);
         setData((d) => ({
             ...d,
             avantages: [
@@ -1897,8 +1906,28 @@ function echapperHtml(v) {
         .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
-function htmlRecuImprimable({ paiement, eleve, classe, nomEtablissement, duplicata }) {
+function logoSur(logo) {
+    // N'accepte que une image PNG/JPEG encodée en base64 (défense en profondeur : la base le vérifie aussi).
+    return typeof logo === "string" && /^data:image\/(png|jpeg);base64,[A-Za-z0-9+\/=]+$/.test(logo) ? logo : "";
+}
+function identitePourRecu(etablissement, modeDemo) {
+    const et = etablissement || {};
+    return {
+        nom: nomEtablissementPourRecu(etablissement, modeDemo),
+        adresse: et.adresse || "",
+        ville: et.ville || "",
+        telephone: et.telephone || "",
+        email: et.emailContact || "",
+        mention: et.mentionLegale || "",
+        logo: logoSur(et.logoData),
+    };
+}
+function htmlRecuImprimable({ paiement, eleve, classe, nomEtablissement, identite, duplicata, apercu }) {
     const e = echapperHtml;
+    const idt = identite || { nom: nomEtablissement || "Établissement" };
+    const logo = logoSur(idt.logo);
+    const ligneAdresse = [idt.adresse, idt.ville].filter(Boolean).join(", ");
+    const ligneContact = [idt.telephone ? "Tél. : " + idt.telephone : "", idt.email ? "E-mail : " + idt.email : ""].filter(Boolean).join("  ·  ");
     const nomEleve = eleve ? `${eleve.prenom || ""} ${eleve.nom || ""}`.trim() : "Élève";
     const lignes = [
         ["Élève", nomEleve],
@@ -1916,27 +1945,40 @@ function htmlRecuImprimable({ paiement, eleve, classe, nomEtablissement, duplica
   @page { size: A5 portrait; margin: 12mm; }
   * { box-sizing: border-box; }
   body { font-family: Arial, Helvetica, sans-serif; color: #1a2540; margin: 0; padding: 0; }
-  .cadre { border: 2px solid #1a2540; padding: 20px 24px; width: 100%; position: relative; }
-  h1 { font-size: 22px; margin: 0; text-align: center; letter-spacing: .5px; }
-  .ecole { text-align: center; font-size: 22px; font-weight: bold; margin: 0 0 4px; }
-  .sous { text-align: center; font-size: 14px; color: #555; margin-bottom: 10px; }
-  .num { text-align: center; font-family: "Courier New", monospace; font-size: 22px; font-weight: bold; margin: 8px 0 16px; }
+  .cadre { border: 2px solid #1a2540; padding: 12px 20px; width: 100%; position: relative; }
+  h1 { font-size: 20px; margin: 0; text-align: center; letter-spacing: .5px; }
+  .entete { display: flex; align-items: center; justify-content: center; gap: 14px; margin-bottom: 4px; }
+  .logo { max-height: 64px; max-width: 130px; object-fit: contain; }
+  .coord { text-align: center; }
+  .ligne { font-size: 13px; color: #444; margin-top: 2px; }
+  .mention { font-style: italic; }
+  .ecole { text-align: center; font-size: 20px; font-weight: bold; margin: 0 0 3px; }
+  .sous { text-align: center; font-size: 14px; color: #555; margin-bottom: 4px; }
+  .num { text-align: center; font-family: "Courier New", monospace; font-size: 20px; font-weight: bold; margin: 4px 0 8px; }
   table { width: 100%; border-collapse: collapse; font-size: 16px; }
-  td { padding: 9px 6px; border-bottom: 1px solid #ddd; vertical-align: top; }
+  td { padding: 6px 6px; border-bottom: 1px solid #ddd; vertical-align: top; }
   td:first-child { color: #555; width: 38%; }
-  .montant { margin: 18px 0 6px; text-align: right; font-size: 28px; font-weight: bold; }
-  .signature { display: flex; justify-content: space-between; margin-top: 44px; font-size: 14px; color: #555; }
+  .montant { margin: 10px 0 4px; text-align: right; font-size: 28px; font-weight: bold; }
+  .signature { display: flex; justify-content: space-between; margin-top: 28px; font-size: 14px; color: #555; }
   .signature div { width: 45%; border-top: 1px solid #999; padding-top: 4px; text-align: center; }
-  .pied { margin-top: 16px; font-size: 12px; color: #777; text-align: center; }
+  .pied { margin-top: 10px; font-size: 12px; color: #777; text-align: center; }
   .filigrane { position: absolute; top: 40%; left: 0; right: 0; text-align: center; font-size: 72px; font-weight: bold; color: rgba(180,0,0,.13); transform: rotate(-20deg); pointer-events: none; }
   .barre { text-align: center; margin: 10px 0; }
   .barre button { font-size: 14px; padding: 8px 18px; cursor: pointer; }
   @media print { .barre { display: none; } }
 </style></head><body>
-<div class="barre"><button onclick="window.print()">Imprimer / Enregistrer en PDF</button></div>
+${apercu ? "" : '<div class="barre"><button onclick="window.print()">Imprimer / Enregistrer en PDF</button></div>'}
 <div class="cadre">
   ${duplicata ? '<div class="filigrane">DUPLICATA</div>' : ""}
-  <p class="ecole">${e(nomEtablissement)}</p>
+  <div class="entete">
+    ${logo ? `<img class="logo" src="${e(logo)}" alt="Logo">` : ""}
+    <div class="coord">
+      <p class="ecole">${e(idt.nom)}</p>
+      ${ligneAdresse ? `<div class="ligne">${e(ligneAdresse)}</div>` : ""}
+      ${ligneContact ? `<div class="ligne">${e(ligneContact)}</div>` : ""}
+      ${idt.mention ? `<div class="ligne mention">${e(idt.mention)}</div>` : ""}
+    </div>
+  </div>
   <div class="sous">Reçu de paiement${duplicata ? " — DUPLICATA (copie du reçu original)" : ""}</div>
   <h1>REÇU N°</h1>
   <div class="num">${e(paiement.numeroRecu)}</div>
@@ -1981,7 +2023,7 @@ function ReceiptCard({ paiement, eleve, classe, etablissement, modeDemo }) {
     const nomEtab = nomEtablissementPourRecu(etablissement, modeDemo);
     const imprimer = () => {
         const w = ouvrirFenetreRecu();
-        if (!afficherRecuImprimable(w, { paiement, eleve, classe, nomEtablissement: nomEtab, duplicata: false })) {
+        if (!afficherRecuImprimable(w, { paiement, eleve, classe, nomEtablissement: nomEtab, identite: identitePourRecu(etablissement, modeDemo), duplicata: false })) {
             alert("Votre navigateur a bloqué la fenêtre du reçu. Autorisez les fenêtres pop-up pour ce site, puis réessayez.");
         }
     };
@@ -2477,7 +2519,7 @@ function RecusTab({ data, moi, rafraichirDonnees, etablissement, modeDemo }) {
     const infosRecu = (p, duplicata) => {
         const eleve = data.eleves.find((e) => e.id === p.eleveId);
         const classe = eleve ? data.classes.find((c) => c.id === eleve.classeId) : null;
-        return { paiement: p, eleve, classe, nomEtablissement: nomEtablissementPourRecu(etablissement, modeDemo), duplicata };
+        return { paiement: p, eleve, classe, nomEtablissement: nomEtablissementPourRecu(etablissement, modeDemo), identite: identitePourRecu(etablissement, modeDemo), duplicata };
     };
     const imprimerOriginal = (p) => {
         const w = ouvrirFenetreRecu();
@@ -6023,6 +6065,7 @@ const TABS = [
     { id: "cloture", label: "Clôture de caisse", icon: Lock },
     { id: "ecarts-caisse", label: "Historique des écarts", icon: History },
     { id: "utilisateurs", label: "Utilisateurs", icon: Users },
+    { id: "etablissement", label: "Mon établissement", icon: GraduationCap },
     { id: "administration-ceres", label: "Administration CERES", icon: GraduationCap },
 ];
 // Profils repris de ton manuel (chapitre 14 / Annexe A). Le rôle affiché vient
@@ -6038,7 +6081,7 @@ const ROLES = [
     "Contrôle (lecture seule)",
 ];
 const ACCES_ONGLETS = {
-    "Direction": ["accueil", "classes", "eleves", "import", "passage-annuel", "encaissement", "recus", "corrections", "recouvrement", "rapprochement", "cloture", "ecarts-caisse", "utilisateurs"],
+    "Direction": ["accueil", "classes", "eleves", "import", "passage-annuel", "encaissement", "recus", "corrections", "recouvrement", "rapprochement", "cloture", "ecarts-caisse", "utilisateurs", "etablissement"],
     "Administration établissement": ["accueil", "classes", "eleves"],
     "Comptabilité": ["accueil", "eleves", "encaissement", "recus", "corrections", "rapprochement", "cloture", "ecarts-caisse"],
     "Chef de caisse": ["accueil", "eleves", "encaissement", "recus", "cloture", "ecarts-caisse"],
@@ -6426,6 +6469,159 @@ function PanelSuppleantActifContinuite({ etat, joursInactivitePrincipal, envoi, 
                 React.createElement("input", { style: inputStyle, value: phrasePassation, onChange: (e) => setPhrasePassation(e.target.value) })),
             React.createElement("div", { className: "mt-2" },
                 React.createElement(GhostButton, { disabled: envoi || !delaiAtteint || motifPassation.trim().length < 20 || phrasePassation !== PHRASE_INACTIVITE, onClick: () => appeler("passation_apres_inactivite", { p_motif: motifPassation, p_confirmation_phrase: phrasePassation }) }, "Confirmer la passation d\u00E9finitive")))));
+}
+/* ------------------------------------------------------------------ */
+/* Onglet : Mon établissement — identité imprimée sur les reçus (P152) */
+/* ------------------------------------------------------------------ */
+function reduireLogo(fichier) {
+    return new Promise((resolve, reject) => {
+        if (!fichier || !/^image\/(png|jpeg)$/.test(fichier.type))
+            return reject(new Error("Choisissez une image PNG ou JPEG."));
+        const url = URL.createObjectURL(fichier);
+        const img = new Image();
+        img.onload = () => {
+            URL.revokeObjectURL(url);
+            const format = fichier.type === "image/png" ? "image/png" : "image/jpeg";
+            let largeurMax = 320, hauteurMax = 160;
+            for (let essai = 0; essai < 6; essai++) {
+                const ratio = Math.min(1, largeurMax / img.width, hauteurMax / img.height);
+                const canvas = document.createElement("canvas");
+                canvas.width = Math.max(1, Math.round(img.width * ratio));
+                canvas.height = Math.max(1, Math.round(img.height * ratio));
+                const ctx = canvas.getContext("2d");
+                if (format === "image/jpeg") {
+                    ctx.fillStyle = "#ffffff";
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                }
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                const data = canvas.toDataURL(format, 0.85);
+                if (data.length <= 270000)
+                    return resolve(data);
+                largeurMax = Math.round(largeurMax * 0.7);
+                hauteurMax = Math.round(hauteurMax * 0.7);
+            }
+            reject(new Error("Ce logo est trop lourd, même après réduction. Choisissez une image plus simple."));
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Impossible de lire cette image.")); };
+        img.src = url;
+    });
+}
+function EtablissementTab({ etablissementId, etablissement, modeDemo, onIdentiteChange }) {
+    const [form, setForm] = useState(null);
+    const [enCours, setEnCours] = useState(false);
+    const [message, setMessage] = useState("");
+    const [erreur, setErreur] = useState("");
+    useEffect(() => {
+        if (etablissement && form === null) {
+            setForm({
+                adresse: etablissement.adresse || "",
+                ville: etablissement.ville || "",
+                telephone: etablissement.telephone || "",
+                emailContact: etablissement.emailContact || "",
+                mentionLegale: etablissement.mentionLegale || "",
+                logoData: logoSur(etablissement.logoData),
+            });
+        }
+    }, [etablissement]);
+    if (!etablissement || !form) {
+        return React.createElement("div", null,
+            React.createElement(SectionTitle, { sub: "Ces informations s'impriment en en-tête de chaque reçu." }, "Mon établissement"),
+            React.createElement(Banner, { tone: "info" }, "Chargement des informations de l'établissement…"));
+    }
+    const maj = (champ) => (ev) => setForm((f) => ({ ...f, [champ]: ev.target.value }));
+    const choisirLogo = async (ev) => {
+        const fichier = ev.target.files && ev.target.files[0];
+        ev.target.value = "";
+        if (!fichier)
+            return;
+        setErreur("");
+        setMessage("");
+        try {
+            const data = await reduireLogo(fichier);
+            setForm((f) => ({ ...f, logoData: data }));
+        }
+        catch (e) {
+            setErreur(String((e && e.message) || e));
+        }
+    };
+    const enregistrer = async () => {
+        setErreur("");
+        setMessage("");
+        const nettoye = {
+            adresse: form.adresse.trim(),
+            ville: form.ville.trim(),
+            telephone: form.telephone.trim(),
+            emailContact: form.emailContact.trim(),
+            mentionLegale: form.mentionLegale.trim(),
+            logoData: form.logoData || "",
+        };
+        if (nettoye.emailContact && !nettoye.emailContact.includes("@"))
+            return setErreur("L'adresse e-mail ne semble pas valide.");
+        setEnCours(true);
+        try {
+            if (!modeDemo) {
+                const r = await sb(`etablissements?id=eq.${encodeURIComponent(etablissementId)}`, {
+                    method: "PATCH",
+                    headers: { Prefer: "return=representation" },
+                    body: JSON.stringify({
+                        adresse: nettoye.adresse || null,
+                        ville: nettoye.ville || null,
+                        telephone: nettoye.telephone || null,
+                        email_contact: nettoye.emailContact || null,
+                        mention_legale: nettoye.mentionLegale || null,
+                        logo_data: nettoye.logoData || null,
+                    }),
+                });
+                if (!r || r.length === 0)
+                    throw new Error("La modification n'a pas été acceptée (droits insuffisants ou établissement suspendu).");
+            }
+            onIdentiteChange(nettoye);
+            setMessage(modeDemo
+                ? "Aperçu mis à jour — en mode démonstration, rien n'est enregistré dans la base."
+                : "Identité enregistrée : elle figurera sur tous les prochains reçus.");
+        }
+        catch (e) {
+            setErreur(String((e && e.message) || e));
+        }
+        finally {
+            setEnCours(false);
+        }
+    };
+    const identiteApercu = {
+        nom: nomEtablissementPourRecu(etablissement, modeDemo),
+        adresse: form.adresse.trim(), ville: form.ville.trim(), telephone: form.telephone.trim(),
+        email: form.emailContact.trim(), mention: form.mentionLegale.trim(), logo: form.logoData,
+    };
+    const htmlApercu = htmlRecuImprimable({
+        paiement: { numeroRecu: "REC-EXEMPLE-0001", libelleEcheance: "Scolarité — 1re tranche", mode: "Espèces", reference: "", date: new Date().toISOString(), caissier: "Nom du caissier", montant: 50000 },
+        eleve: { prenom: "Prénom", nom: "NOM", matricule: "MAT-0001" },
+        classe: { nom: "6e A", annee: "2026-2027" },
+        identite: identiteApercu, duplicata: false, apercu: true,
+    });
+    return (React.createElement("div", null,
+        React.createElement(SectionTitle, { sub: "Ces informations s'impriment en en-tête de chaque reçu. L'aperçu se met à jour pendant que vous tapez." }, "Mon établissement"),
+        modeDemo && React.createElement("div", { className: "mb-3" }, React.createElement(Banner, { tone: "warn" }, "Mode démonstration : vous pouvez essayer, mais rien n'est enregistré dans la base.")),
+        React.createElement("div", { className: "grid gap-4 lg:grid-cols-2" },
+            React.createElement(Card, null,
+                React.createElement("div", { className: "space-y-3" },
+                    React.createElement(Field, { label: "Nom de l'établissement", hint: "Le nom est géré par CERES ; contactez-nous pour le modifier." },
+                        React.createElement("input", { style: { ...inputStyle, background: "#f3f1ec" }, value: identiteApercu.nom, disabled: true })),
+                    React.createElement(Field, { label: "Logo", hint: "PNG ou JPEG. L'image est réduite automatiquement (200 Ko maximum)." },
+                        React.createElement("div", { className: "flex flex-wrap items-center gap-3" },
+                            form.logoData && React.createElement("img", { src: form.logoData, alt: "Logo", style: { maxHeight: 64, maxWidth: 140, objectFit: "contain", border: `1px solid ${C.border}`, background: "#fff", padding: 4 } }),
+                            React.createElement("input", { type: "file", accept: "image/png,image/jpeg", onChange: choisirLogo }),
+                            form.logoData && React.createElement(GhostButton, { onClick: () => setForm((f) => ({ ...f, logoData: "" })) }, "Retirer le logo"))),
+                    React.createElement(Field, { label: "Adresse" }, React.createElement("input", { style: inputStyle, value: form.adresse, maxLength: 200, onChange: maj("adresse"), placeholder: "Quartier, rue…" })),
+                    React.createElement(Field, { label: "Ville" }, React.createElement("input", { style: inputStyle, value: form.ville, maxLength: 100, onChange: maj("ville"), placeholder: "N'Djaména" })),
+                    React.createElement(Field, { label: "Téléphone" }, React.createElement("input", { style: inputStyle, value: form.telephone, maxLength: 40, onChange: maj("telephone"), placeholder: "+235 …" })),
+                    React.createElement(Field, { label: "E-mail de l'établissement" }, React.createElement("input", { style: inputStyle, value: form.emailContact, maxLength: 150, onChange: maj("emailContact"), placeholder: "contact@ecole.td" })),
+                    React.createElement(Field, { label: "Mention libre", hint: "Par exemple : agrément n°, NIF, RCCM…" }, React.createElement("input", { style: inputStyle, value: form.mentionLegale, maxLength: 200, onChange: maj("mentionLegale") })),
+                    erreur && React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur),
+                    message && React.createElement(Banner, { tone: "success", icon: React.createElement(CheckCircle2, { size: 16 }) }, message),
+                    React.createElement(PrimaryButton, { onClick: enregistrer, disabled: enCours }, enCours ? "Enregistrement…" : "Enregistrer"))),
+            React.createElement(Card, null,
+                React.createElement("div", { className: "mb-2 text-xs font-medium uppercase tracking-wide", style: { color: C.muted } }, "Aperçu du reçu"),
+                React.createElement("iframe", { title: "Aperçu du reçu", sandbox: "", srcDoc: htmlApercu, style: { width: "100%", height: 600, border: `1px solid ${C.border}`, background: "#fff" } })))));
 }
 /* ------------------------------------------------------------------ */
 /* Onglet : Utilisateurs — inviter et gérer les comptes (Direction)   */
@@ -6842,7 +7038,7 @@ function CeresNoyauFinancier() {
                 // P138 — statut d'abonnement réel de l'établissement, pour affichage
                 // seulement : le blocage effectif des écritures est déjà appliqué
                 // côté base (RLS). Discret et non bloquant si cet appel échoue.
-                sb(`etablissements?id=eq.${encodeURIComponent(p.etablissementId)}&select=nom,statut_abonnement,type`)
+                sb(`etablissements?id=eq.${encodeURIComponent(p.etablissementId)}&select=nom,statut_abonnement,type,adresse,ville,telephone,email_contact,mention_legale,logo_data`)
                     .then((r) => setEtablissementActuel(r && r[0] ? versObjetJs("etablissements", r[0]) : null))
                     .catch(() => setEtablissementActuel(null));
                 // Discret et non bloquant : ne fait rien côté base si la personne
@@ -6939,6 +7135,10 @@ function CeresNoyauFinancier() {
             modeDemo: true,
         });
         setLoading(true);
+        // P152 : identité de l'école de démonstration (lecture publique autorisée par la base)
+        sb(`etablissements?id=eq.${encodeURIComponent(etabId)}&select=nom,statut_abonnement,type,adresse,ville,telephone,email_contact,mention_legale,logo_data`)
+            .then((r) => setEtablissementActuel(r && r[0] ? versObjetJs("etablissements", r[0]) : null))
+            .catch(() => { });
         try {
             const chargees = await chargerDepuisSupabase(etabId);
             setDataRaw({ ...chargees, etablissementId: etabId });
@@ -7163,6 +7363,7 @@ function CeresNoyauFinancier() {
             activeTab === "rapprochement" && React.createElement(RapprochementTab, { moi: profil, data: data }),
             activeTab === "cloture" && (React.createElement(ClotureTab, { data: data, moi: profil, dateInitiale: dateControleCaisse, blocageCaisse: blocageCaisse, cloturesVerrouillees: cloturesVerrouillees, role: role, rafraichirDonnees: rafraichirDonnees })),
             activeTab === "ecarts-caisse" && React.createElement(HistoriqueEcartsTab, { moi: profil }),
+            activeTab === "etablissement" && (React.createElement(EtablissementTab, { etablissementId: data.etablissementId, etablissement: etablissementActuel, modeDemo: (profil && profil.modeDemo) === true, onIdentiteChange: (nouvelle) => setEtablissementActuel((prev) => ({ ...(prev || {}), ...nouvelle })) })),
             activeTab === "utilisateurs" && (React.createElement(UtilisateursTab, { etablissementId: data.etablissementId, moi: profil })),
             activeTab === "administration-ceres" && React.createElement(AdministrationCeresTab, { moi: profil })),
         confirmReset && (() => {
