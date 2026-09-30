@@ -5518,6 +5518,68 @@ function exporterElevesCSV(data) {
     const csv = "\uFEFF" + [entetes.join(";"), ...lignes].join("\n");
     telechargerFichier(`eleves-${todayISO()}.csv`, csv, "text/csv;charset=utf-8");
 }
+/* ------------------------------------------------------------------ */
+/* Export Excel (P150) — paiements, impayés, situation des élèves      */
+/* ------------------------------------------------------------------ */
+function nomFichierSur(texte) {
+    return String(texte || "etablissement")
+        .normalize("NFD").replace(/[̀-ͯ]/g, "")
+        .replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase().slice(0, 40) || "etablissement";
+}
+function feuilleExcel(entetes, lignes, largeurs, ligneTotal) {
+    const aoa = [entetes, ...lignes];
+    if (ligneTotal)
+        aoa.push(ligneTotal);
+    const feuille = XLSX.utils.aoa_to_sheet(aoa);
+    feuille["!cols"] = largeurs.map((w) => ({ wch: w }));
+    feuille["!freeze"] = { xSplit: 0, ySplit: 1 };
+    feuille["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(lignes.length, 1), c: entetes.length - 1 } }) };
+    return feuille;
+}
+function exporterExcelCERES(data, nomEtablissement, portee) {
+    const classeur = XLSX.utils.book_new();
+    const somme = (tab) => tab.reduce((s, x) => s + (Number(x) || 0), 0);
+    if (portee === "complet") {
+        const paiements = [...data.paiements].sort((a, b) => (a.date < b.date ? 1 : -1));
+        const lignesP = paiements.map((p) => {
+            const eleve = data.eleves.find((e) => e.id === p.eleveId);
+            const corr = somme(data.corrections.filter((c) => c.statut === "approuvee" && c.paiementId === p.id).map((c) => c.montant));
+            return [
+                formatDateHeureFR(p.date), p.numeroRecu || "",
+                eleve ? eleve.matricule : "", eleve ? eleve.nom : "Élève supprimé", eleve ? eleve.prenom : "",
+                eleve ? eleve.classeNom : "", p.libelleEcheance || "", p.mode || "", p.reference || "", p.caissier || "",
+                Number(p.montant) || 0, corr, (Number(p.montant) || 0) + corr,
+            ];
+        });
+        XLSX.utils.book_append_sheet(classeur, feuilleExcel(
+            ["Date", "N° de reçu", "Matricule", "Nom", "Prénom", "Classe", "Objet", "Mode", "Référence", "Caissier", "Montant (FCFA)", "Corrections approuvées", "Net (FCFA)"],
+            lignesP, [18, 20, 14, 18, 18, 12, 24, 14, 16, 16, 15, 20, 15],
+            ["TOTAL", "", "", "", "", "", "", "", "", "", somme(lignesP.map((l) => l[10])), somme(lignesP.map((l) => l[11])), somme(lignesP.map((l) => l[12]))]), "Paiements");
+    }
+    const impayes = listeImpayes(data).sort((a, b) => b.retard - a.retard);
+    const lignesI = impayes.map(({ eleve, tranche, retard }) => [
+        eleve.matricule, eleve.nom, eleve.prenom, eleve.classeNom, eleve.respNom || "", eleve.respTel || "",
+        tranche.libelle || "", tranche.dateEcheance ? formatDateFR(tranche.dateEcheance) : "", retard,
+        tranche.net, tranche.paye, tranche.reste, tranche.statut,
+    ]);
+    XLSX.utils.book_append_sheet(classeur, feuilleExcel(
+        ["Matricule", "Nom", "Prénom", "Classe", "Responsable", "Téléphone", "Tranche", "Échéance", "Jours de retard", "Net exigible", "Payé", "Reste dû (FCFA)", "Statut"],
+        lignesI, [14, 18, 18, 12, 22, 16, 24, 13, 10, 14, 12, 16, 22],
+        ["TOTAL", "", "", "", "", "", "", "", "", somme(lignesI.map((l) => l[9])), somme(lignesI.map((l) => l[10])), somme(lignesI.map((l) => l[11])), ""]), "Impayés");
+    if (portee === "complet") {
+        const lignesE = data.eleves.map((e) => {
+            const d = computeDossier(e, data);
+            return [e.matricule, e.nom, e.prenom, e.classeNom, e.respNom || "", e.respTel || "", d.totals.net, d.totals.paye, d.totals.reste, d.totals.retard];
+        });
+        XLSX.utils.book_append_sheet(classeur, feuilleExcel(
+            ["Matricule", "Nom", "Prénom", "Classe", "Responsable", "Téléphone", "Net exigible", "Payé", "Reste", "Dont en retard"],
+            lignesE, [14, 18, 18, 12, 22, 16, 14, 12, 12, 14],
+            ["TOTAL", "", "", "", "", "", somme(lignesE.map((l) => l[6])), somme(lignesE.map((l) => l[7])), somme(lignesE.map((l) => l[8])), somme(lignesE.map((l) => l[9]))]), "Situation des élèves");
+    }
+    const nom = `ceres-${nomFichierSur(nomEtablissement)}-${portee === "complet" ? "paiements-impayes" : "impayes"}-${todayISO()}.xlsx`;
+    XLSX.writeFile(classeur, nom);
+    return nom;
+}
 function exporterSauvegardeJSON(data) {
     telechargerFichier(`sauvegarde-ceres-${todayISO()}.json`, JSON.stringify(data, null, 2), "application/json;charset=utf-8");
 }
@@ -5639,7 +5701,19 @@ function listeImpayesArretee(data, dateFin) {
     }));
     return lignes;
 }
-function Dashboard({ data, onOuvrirDossier, peutRecouvrer }) {
+function Dashboard({ data, onOuvrirDossier, peutRecouvrer, role, nomEtablissement }) {
+    const [messageExcel, setMessageExcel] = useState("");
+    const peutExporterTout = role === "Direction" || role === "Comptabilité";
+    const peutExporterImpayes = peutExporterTout || role === "Recouvrement";
+    const lancerExportExcel = (portee) => {
+        try {
+            const nom = exporterExcelCERES(data, nomEtablissement, portee);
+            setMessageExcel(`Fichier « ${nom} » téléchargé — cherchez-le dans votre dossier Téléchargements.`);
+        }
+        catch (e) {
+            setMessageExcel("Erreur : l'export Excel a échoué (" + String((e && e.message) || e) + ").");
+        }
+    };
     const [typePeriode, setTypePeriode] = useState("rentree");
     const [debutPersonnalise, setDebutPersonnalise] = useState("");
     const [finPersonnalisee, setFinPersonnalisee] = useState("");
@@ -5917,6 +5991,13 @@ function Dashboard({ data, onOuvrirDossier, peutRecouvrer }) {
                         ? `Relancé le ${formatDateFR(l.derniereRelance.dateEnvoi)}`
                         : "Jamais relancé",
                     l.promesseActive && ` · promesse en attente pour le ${formatDateFR(l.promesseActive.date)}`)))))))),
+        (peutExporterImpayes) && React.createElement("div", { className: "mt-6" },
+            React.createElement(SectionTitle, { sub: "Fichiers Excel (.xlsx) pr\u00EAts \u00E0 ouvrir, avec filtres et totaux." }, "Export Excel"),
+            React.createElement(Card, null,
+                React.createElement("div", { className: "flex flex-wrap gap-2" },
+                    peutExporterTout && React.createElement(GhostButton, { onClick: () => lancerExportExcel("complet"), icon: React.createElement(Receipt, { size: 14 }) }, "Paiements + impay\u00E9s + situation des \u00E9l\u00E8ves (Excel)"),
+                    React.createElement(GhostButton, { onClick: () => lancerExportExcel("impayes"), icon: React.createElement(BellRing, { size: 14 }) }, "Impay\u00E9s uniquement (Excel)")),
+                messageExcel && React.createElement("p", { className: "mt-2 text-xs", style: { color: C.muted }, role: "status" }, messageExcel))),
         React.createElement("div", { className: "mt-6" },
             React.createElement(SectionTitle, { sub: "Une copie t'appartient, ind\u00E9pendante de Supabase \u2014 garde-la \u00E0 jour r\u00E9guli\u00E8rement." }, "Export & sauvegarde"),
             React.createElement(Card, null,
@@ -7070,7 +7151,7 @@ function CeresNoyauFinancier() {
                     t.label));
             }))),
         React.createElement("div", { className: "mx-auto max-w-7xl px-3 py-4 sm:px-5 sm:py-6" },
-            activeTab === "accueil" && React.createElement(Dashboard, { data: data, peutRecouvrer: ongletsAutorises.includes("recouvrement"), onOuvrirDossier: (echeanceId) => { setCibleRecouvrement(echeanceId); setActiveTab("recouvrement"); } }),
+            activeTab === "accueil" && React.createElement(Dashboard, { data: data, role: role, nomEtablissement: nomEtablissementPourRecu(etablissementActuel, (profil && profil.modeDemo) === true), peutRecouvrer: ongletsAutorises.includes("recouvrement"), onOuvrirDossier: (echeanceId) => { setCibleRecouvrement(echeanceId); setActiveTab("recouvrement"); } }),
             activeTab === "classes" && React.createElement(ClassesTab, { data: data, setData: setData, role: role, moi: profil, rafraichirDonnees: rafraichirDonnees }),
             activeTab === "eleves" && React.createElement(ElevesTab, { data: data, setData: setData, moi: profil, rafraichirDonnees: rafraichirDonnees }),
             activeTab === "import" && React.createElement(ImportTab, { data: data, moi: profil, rafraichirDonnees: rafraichirDonnees }),
