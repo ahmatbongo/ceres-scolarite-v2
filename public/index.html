@@ -5623,6 +5623,64 @@ function exporterExcelCERES(data, nomEtablissement, portee) {
     XLSX.writeFile(classeur, nom);
     return nom;
 }
+function feuilleGenerique(lignes) {
+    const cles = [];
+    lignes.forEach((l) => Object.keys(l || {}).forEach((k) => { if (!cles.includes(k)) cles.push(k); }));
+    const cellule = (v) => {
+        if (v === null || v === undefined) return "";
+        if (typeof v === "object") { const t = JSON.stringify(v); return t.length > 32000 ? t.slice(0, 32000) + "…" : t; }
+        return typeof v === "string" && v.length > 32000 ? v.slice(0, 32000) + "…" : v;
+    };
+    return feuilleExcel(cles, lignes.map((l) => cles.map((k) => cellule(l[k]))), cles.map(() => 18));
+}
+function exporterSauvegardeExcel(data, nomEtablissement) {
+    const classeur = XLSX.utils.book_new();
+    const somme = (tab) => tab.reduce((s, x) => s + (Number(x) || 0), 0);
+    const eleves = data.eleves || [];
+    const dossiers = eleves.map((e) => ({ e, d: computeDossier(e, data) }));
+    const resume = [];
+    const ajouter = (nom, feuille, n) => { XLSX.utils.book_append_sheet(classeur, feuille, nom.slice(0, 31)); resume.push([nom, n]); };
+    ajouter("Élèves", feuilleExcel(
+        ["Matricule", "Nom", "Prénom", "Classe", "Responsable", "Téléphone", "Brut", "Remises", "Net exigible", "Payé (net)", "Reste dû", "Dont en retard"],
+        dossiers.map(({ e, d }) => [e.matricule, e.nom, e.prenom, e.classeNom, e.respNom || "", e.respTel || "", d.totals.brut, d.totals.avantage, d.totals.net, d.totals.paye, d.totals.reste, d.totals.retard]),
+        [14, 18, 18, 12, 22, 16, 12, 12, 14, 14, 12, 14]), eleves.length);
+    const lignesT = [];
+    dossiers.forEach(({ e, d }) => d.tranches.forEach((t) => lignesT.push([e.matricule, e.nom, e.prenom, e.classeNom, t.libelle || "", t.dateEcheance ? formatDateFR(t.dateEcheance) : "", t.montantBrut, t.avantage, t.net, t.paye, t.reste, t.statut])));
+    ajouter("Échéances", feuilleExcel(
+        ["Matricule", "Nom", "Prénom", "Classe", "Tranche", "Échéance", "Brut", "Remises", "Net exigible", "Payé (net)", "Reste dû", "Statut"],
+        lignesT, [14, 18, 18, 12, 24, 13, 12, 12, 14, 14, 12, 22]), lignesT.length);
+    const paiements = [...(data.paiements || [])].sort((a, b) => (a.date < b.date ? 1 : -1));
+    const lignesP = paiements.map((p) => {
+        const el = eleves.find((e) => e.id === p.eleveId);
+        const corr = somme((data.corrections || []).filter((c) => c.statut === "approuvee" && c.paiementId === p.id).map((c) => c.montant));
+        return [formatDateHeureFR(p.date), p.numeroRecu || "", el ? el.matricule : "", el ? el.nom : "Élève supprimé", el ? el.prenom : "", p.libelleEcheance || "", p.mode || "", p.reference || "", p.caissier || "", Number(p.montant) || 0, corr, (Number(p.montant) || 0) + corr];
+    });
+    ajouter("Paiements", feuilleExcel(
+        ["Date", "N° de reçu", "Matricule", "Nom", "Prénom", "Objet", "Mode", "Référence", "Caissier", "Montant", "Corrections approuvées", "Net"],
+        lignesP, [18, 20, 14, 18, 18, 24, 14, 16, 16, 14, 20, 14]), lignesP.length);
+    const lignesR = (data.avantages || []).map((a) => {
+        const el = eleves.find((e) => e.id === a.eleveId);
+        return [a.date ? formatDateHeureFR(a.date) : "", el ? el.matricule : "", el ? el.nom : "", el ? el.prenom : "", a.type || "", Number(a.montant) || 0, a.motif || "", a.autorisePar || ""];
+    });
+    ajouter("Remises", feuilleExcel(["Date", "Matricule", "Nom", "Prénom", "Type", "Montant", "Motif", "Autorisé par"], lignesR, [18, 14, 18, 18, 16, 12, 34, 20]), lignesR.length);
+    const autres = [["Classes", "classes"], ["Frais", "frais"], ["Corrections", "corrections"], ["Promesses", "promesses"], ["Relances", "relances"], ["Avoirs", "avoirs"], ["Clôtures de caisse", "clotures"], ["Mouvements de caisse", "mouvementsCaisse"], ["Contestations", "contestations"], ["Dérogations caisse", "derogationsCaisse"], ["Duplicatas de reçus", "duplicatasRecu"], ["Coordonnées modifiées", "historiqueCoordonnees"], ["Frais optionnels", "souscriptionsOptionnelles"]];
+    autres.forEach(([titre, cle]) => {
+        const lignes = Array.isArray(data[cle]) ? data[cle] : [];
+        if (lignes.length) ajouter(titre, feuilleGenerique(lignes), lignes.length);
+    });
+    const entete = [
+        ["Sauvegarde CERES Scolarité"], ["Établissement", nomEtablissement || ""], ["Date de la sauvegarde", formatDateHeureFR(new Date().toISOString())], [],
+        ["Feuille", "Nombre de lignes"], ...resume, [],
+        ["Document confidentiel : il contient des données personnelles d'élèves et de familles. Conservez-le en lieu sûr."],
+    ];
+    const feuilleInfo = XLSX.utils.aoa_to_sheet(entete);
+    feuilleInfo["!cols"] = [{ wch: 28 }, { wch: 40 }];
+    XLSX.utils.book_append_sheet(classeur, feuilleInfo, "Lisez-moi");
+    classeur.SheetNames = ["Lisez-moi", ...classeur.SheetNames.filter((n) => n !== "Lisez-moi")];
+    const nom = `sauvegarde-${nomFichierSur(nomEtablissement)}-${todayISO()}.xlsx`;
+    XLSX.writeFile(classeur, nom);
+    return nom;
+}
 function exporterSauvegardeJSON(data) {
     telechargerFichier(`sauvegarde-ceres-${todayISO()}.json`, JSON.stringify(data, null, 2), "application/json;charset=utf-8");
 }
@@ -6041,10 +6099,11 @@ function Dashboard({ data, onOuvrirDossier, peutRecouvrer, role, nomEtablissemen
                     peutExporterTout && React.createElement(GhostButton, { onClick: () => lancerExportExcel("complet"), icon: React.createElement(Receipt, { size: 14 }) }, "Paiements + impay\u00E9s + situation des \u00E9l\u00E8ves (Excel)"),
                     React.createElement(GhostButton, { onClick: () => lancerExportExcel("impayes"), icon: React.createElement(BellRing, { size: 14 }) }, "Impay\u00E9s uniquement (Excel)")),
                 messageExcel && React.createElement("p", { className: "mt-2 text-xs", style: { color: C.muted }, role: "status" }, messageExcel))),
-        React.createElement("div", { className: "mt-6" },
+        peutExporterTout && React.createElement("div", { className: "mt-6" },
             React.createElement(SectionTitle, { sub: "Une copie t'appartient, ind\u00E9pendante de Supabase \u2014 garde-la \u00E0 jour r\u00E9guli\u00E8rement." }, "Export & sauvegarde"),
             React.createElement(Card, null,
                 React.createElement("div", { className: "flex flex-wrap gap-2" },
+                    React.createElement(GhostButton, { onClick: () => exporterSauvegardeExcel(data, nomEtablissement), icon: React.createElement(Receipt, { size: 14 }) }, "Sauvegarde compl\u00E8te lisible (Excel)"),
                     React.createElement(GhostButton, { onClick: () => exporterElevesCSV(data), icon: React.createElement(Receipt, { size: 14 }) }, "T\u00E9l\u00E9charger la liste des \u00E9l\u00E8ves (CSV)"),
                     React.createElement(GhostButton, { onClick: () => exporterSauvegardeJSON(data), icon: React.createElement(Lock, { size: 14 }) }, "T\u00E9l\u00E9charger une sauvegarde compl\u00E8te (JSON)")),
                 React.createElement("p", { className: "mt-2 text-xs", style: { color: C.muted } }, "Le CSV s'ouvre directement dans Excel. La sauvegarde JSON est une copie technique compl\u00E8te de toutes les donn\u00E9es de ton \u00E9tablissement \u2014 \u00E0 conserver de c\u00F4t\u00E9, pas destin\u00E9e \u00E0 \u00EAtre relue \u00E0 l'\u0153il nu.")))));
