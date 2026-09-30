@@ -887,6 +887,12 @@ function ClassesTab({ data, setData, role, moi, rafraichirDonnees }) {
     };
     const [scolarite, setScolarite] = useState({ montant: "", nbTranches: 3, dateDepart: "", intervalle: 30, dateEffet: "", lignes: [] });
     const [autreFrais, setAutreFrais] = useState({ libelle: "Transport", montant: "", dateEcheance: "", typeFrais: "optionnel" });
+    // P162 — Les formulaires de frais ne gardent pas en mémoire la saisie faite sur une autre classe.
+    useEffect(() => {
+        setScolarite({ montant: "", nbTranches: 3, dateDepart: "", intervalle: 30, dateEffet: "", lignes: [] });
+        setAutreFrais({ libelle: "Transport", montant: "", dateEcheance: "", typeFrais: "optionnel" });
+        setErreur("");
+    }, [openClasseId]);
     const creerClasse = () => {
         setErreur("");
         if (role !== "Direction")
