@@ -8479,7 +8479,7 @@ function BilanJourTab({ data, nomEtablissement }) {
     const resume = [
         `Bilan de la journée du ${dateLisible} — ${nomEtablissement || "Établissement"}`,
         "",
-        `Total encaissé : ${formatFCFA(bord.totalJournee)} (${nbPaiements} paiement${nbPaiements > 1 ? "s" : ""})`,
+        `Total net de la journée : ${formatFCFA(bord.totalJournee)} (${nbPaiements} paiement${nbPaiements > 1 ? "s" : ""})`,
         ...MODES_BORDEREAU.filter((m) => parMode[m] !== 0).map((m) => `  • ${m} : ${formatFCFA(parMode[m])}`),
         bord.lignes.length ? "Par caissier :" : "Aucun encaissement ce jour.",
         ...bord.lignes.map((l) => `  • ${l.caissierNom} : ${formatFCFA(l.total)} (${l.operations} opération${l.operations > 1 ? "s" : ""})`),
@@ -8505,7 +8505,7 @@ function BilanJourTab({ data, nomEtablissement }) {
                 h(GhostButton, { onClick: () => setDate(decalerJourISO(date, 1)), disabled: date >= todayISO() }, "Lendemain →"),
                 date !== todayISO() && h(GhostButton, { onClick: () => setDate(todayISO()) }, "Aujourd'hui"))),
         h("div", { className: "grid grid-cols-2 gap-3 sm:grid-cols-4", style: { marginBottom: 12 } },
-            stat("Total encaissé", bord.totalJournee, C.success),
+            stat("Total net de la journée", bord.totalJournee, C.success),
             h(Card, { key: "nb" }, h("div", { className: "text-xs", style: { color: C.muted } }, "Paiements enregistrés"), h("div", { className: "mt-1 text-lg", style: { fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 } }, nbPaiements)),
             h(Card, { key: "corr" }, h("div", { className: "text-xs", style: { color: C.muted } }, "Corrections approuvées"), h("div", { className: "mt-1 text-lg", style: { fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 } }, corrJour.length)),
             stat("Impayés en retard (total)", totalRetard, C.danger)),
@@ -8551,11 +8551,11 @@ function BilanJourTab({ data, nomEtablissement }) {
 }
 const TABS = [
     { id: "accueil", label: "Vue d'ensemble", icon: LayoutDashboard },
+    { id: "bilan-jour", label: "Bilan du jour", icon: Wallet },
     { id: "classes", label: "Classes & grilles", icon: GraduationCap },
     { id: "eleves", label: "Élèves", icon: Users },
     { id: "import", label: "Import", icon: Plus },
     { id: "passage-annuel", label: "Passage annuel", icon: History },
-    { id: "bilan-jour", label: "Bilan du jour", icon: LayoutDashboard },
     { id: "encaissement", label: "Encaissement", icon: Wallet },
     { id: "recus", label: "Reçus", icon: Receipt },
     { id: "corrections", label: "Corrections", icon: History },
@@ -8608,11 +8608,20 @@ function AdministrationCeresTab({ moi }) {
     });
     const [envoi, setEnvoi] = useState(false);
     const [modifEnCours, setModifEnCours] = useState(null); // id de l'établissement en cours de modification
+    const [directions, setDirections] = useState([]);
+    const [masquerTests, setMasquerTests] = useState(true);
     const charger = useCallback(async () => {
         setChargement(true);
         try {
             const r = await sb("etablissements?type=eq.commercial&select=*&order=cree_le.asc");
             setEtablissements(r.map((e) => versObjetJs("etablissements", e)));
+            try {
+                const d = await sb("utilisateurs?role=eq.Direction&actif=eq.true&select=etablissement_id,nom,email");
+                setDirections(d.map((x) => versObjetJs("utilisateurs", x)));
+            }
+            catch (_) {
+                setDirections([]);
+            }
         }
         catch (e) {
             setErreur(String((e === null || e === void 0 ? void 0 : e.message) || e));
@@ -8692,7 +8701,62 @@ function AdministrationCeresTab({ moi }) {
         "Suspendu": { bg: C.dangerBg, fg: C.danger },
         "Résilié": { bg: "#eee", fg: C.muted },
     };
+    const joursAvantEcheance = (iso) => {
+        if (!iso)
+            return null;
+        const d1 = new Date(String(iso).slice(0, 10) + "T12:00:00");
+        const d0 = new Date(todayISO() + "T12:00:00");
+        return Math.round((d1 - d0) / 86400000);
+    };
+    const estEcoleTest = (e) => /test|entra[iî]nement|démo|demo/i.test(e.nom || "");
+    const toutes = etablissements || [];
+    const visibles = toutes.filter((e) => !masquerTests || !estEcoleTest(e));
+    const urgence = (e) => {
+        const j = joursAvantEcheance(e.dateEcheance);
+        if (e.statutAbonnement !== "Actif")
+            return -100000;
+        return j === null ? 100000 : j;
+    };
+    const liste = [...visibles].sort((x, y) => urgence(x) - urgence(y));
+    const nbActives = visibles.filter((e) => e.statutAbonnement === "Actif").length;
+    const nbEchues = visibles.filter((e) => e.statutAbonnement === "Actif" && joursAvantEcheance(e.dateEcheance) !== null && joursAvantEcheance(e.dateEcheance) < 0).length;
+    const nbBientot = visibles.filter((e) => { const j = joursAvantEcheance(e.dateEcheance); return e.statutAbonnement === "Actif" && j !== null && j >= 0 && j <= 30; }).length;
+    const nbBloquees = visibles.filter((e) => e.statutAbonnement !== "Actif").length;
+    const revenuMensuel = visibles.filter((e) => e.statutAbonnement === "Actif").reduce((s, e) => s + (Number(e.tarifFcfa) || 0), 0);
+    const emailsDirection = (e) => directions.filter((d) => d.etablissementId === e.id).map((d) => d.email).filter(Boolean);
+    const lienRappel = (e) => {
+        const j = joursAvantEcheance(e.dateEcheance);
+        const dest = emailsDirection(e).join(",");
+        const sujet = j !== null && j < 0 ? `Abonnement CERES Scolarité — échéance dépassée (${e.nom})` : `Abonnement CERES Scolarité — rappel d'échéance (${e.nom})`;
+        const quand = e.dateEcheance ? formatDateFR(e.dateEcheance) : "prochainement";
+        const corps = `Madame, Monsieur,\n\n` + (j !== null && j < 0
+            ? `L'abonnement de ${e.nom} à CERES Scolarité est arrivé à échéance le ${quand}. Afin d'éviter toute interruption de l'enregistrement des encaissements, nous vous invitons à régulariser votre situation.`
+            : `Nous vous informons que l'abonnement de ${e.nom} à CERES Scolarité arrive à échéance le ${quand}. Afin d'éviter toute interruption de service, nous vous invitons à procéder à son renouvellement.`)
+            + `\n\nNous restons à votre disposition pour toute information complémentaire.\n\nCordialement,\nCERES SARL`;
+        return `mailto:${dest}?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`;
+    };
+    const passerEnGrace = async (e) => {
+        if (!window.confirm(`Passer « ${e.nom} » en délai de grâce ? Les écritures (encaissements, inscriptions) seront bloquées pour cette école jusqu'à régularisation.`))
+            return;
+        try {
+            await sb(`etablissements?id=eq.${e.id}`, { method: "PATCH", body: JSON.stringify({ statut_abonnement: "Délai de grâce" }) });
+            await charger();
+        }
+        catch (err) {
+            setErreur(String((err === null || err === void 0 ? void 0 : err.message) || err));
+        }
+    };
+    const pastille = (lib, nb, couleur) => React.createElement(Card, { key: lib }, React.createElement("div", { className: "text-xs", style: { color: C.muted } }, lib), React.createElement("div", { className: "mt-1 text-lg", style: { fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: couleur || C.ink } }, nb));
     return (React.createElement("div", null,
+        React.createElement("div", { className: "grid grid-cols-2 gap-3 sm:grid-cols-5", style: { marginBottom: 12 } },
+            pastille("Écoles actives", nbActives, C.success),
+            pastille("Échéance sous 30 jours", nbBientot, nbBientot ? C.warn : C.ink),
+            pastille("Échéance dépassée", nbEchues, nbEchues ? C.danger : C.ink),
+            pastille("Bloquées (grâce/suspendues)", nbBloquees, nbBloquees ? C.danger : C.ink),
+            React.createElement(Card, { key: "rev" }, React.createElement("div", { className: "text-xs", style: { color: C.muted } }, "Tarifs mensuels (actives)"), React.createElement("div", { className: "mt-1 text-lg" }, React.createElement(Money, null, revenuMensuel)))),
+        React.createElement("label", { className: "mb-3 flex items-center gap-2 text-sm", style: { color: C.muted } },
+            React.createElement("input", { type: "checkbox", checked: masquerTests, onChange: (ev) => setMasquerTests(ev.target.checked) }),
+            `Masquer les écoles de test et d'entraînement (${toutes.length - visibles.length} masquée${toutes.length - visibles.length > 1 ? "s" : ""})`),
         React.createElement(SectionTitle, { sub: "Cr\u00E9er une \u00E9cole lui donne aussit\u00F4t ses propres donn\u00E9es, totalement s\u00E9par\u00E9es des autres \u2014 tu ne vois ici que la liste et l'abonnement, jamais leur contenu financier." }, "Administration CERES \u2014 \u00E9tablissements"),
         React.createElement(Card, { style: { marginBottom: 16 } },
             React.createElement("div", { className: "grid gap-3 sm:grid-cols-3" },
@@ -8713,7 +8777,7 @@ function AdministrationCeresTab({ moi }) {
             erreur && (React.createElement("div", { className: "mt-3" },
                 React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))),
         chargement && React.createElement(Banner, { tone: "info" }, "Chargement..."),
-        React.createElement("div", { className: "space-y-2" }, etablissements === null || etablissements === void 0 ? void 0 : etablissements.map((e) => {
+        React.createElement("div", { className: "space-y-2" }, liste.map((e) => {
             const enModif = modifEnCours === e.id;
             const couleurs = COULEURS_STATUT[e.statutAbonnement] || COULEURS_STATUT["Actif"];
             return (React.createElement(Card, { key: e.id },
@@ -8725,7 +8789,17 @@ function AdministrationCeresTab({ moi }) {
                             e.tarifFcfa ? ` · ${formatFCFA(e.tarifFcfa)}/mois` : "",
                             e.dateEcheance ? ` · échéance ${formatDateFR(e.dateEcheance)}` : "")),
                     React.createElement("div", { className: "flex items-center gap-2" },
+                        (() => {
+                            const j = joursAvantEcheance(e.dateEcheance);
+                            if (j === null || e.statutAbonnement !== "Actif")
+                                return null;
+                            const txt = j < 0 ? `échue depuis ${-j} j` : j === 0 ? "échéance aujourd'hui" : `dans ${j} j`;
+                            const col = j < 0 ? C.danger : j <= 30 ? C.warn : C.muted;
+                            return React.createElement("span", { className: "text-xs", style: { color: col, fontWeight: 600 } }, txt);
+                        })(),
                         React.createElement("span", { className: "rounded-full px-2 py-0.5 text-xs", style: { background: couleurs.bg, color: couleurs.fg } }, e.statutAbonnement),
+                        (e.dateEcheance && joursAvantEcheance(e.dateEcheance) <= 30) && React.createElement("a", { href: lienRappel(e), className: "ceres-tapline text-xs", style: { color: C.navy, fontWeight: 600 } }, emailsDirection(e).length ? "Envoyer un rappel" : "Rédiger un rappel"),
+                        (e.statutAbonnement === "Actif" && e.dateEcheance && joursAvantEcheance(e.dateEcheance) < 0) && React.createElement(GhostButton, { onClick: () => passerEnGrace(e), tone: C.danger }, "Passer en délai de grâce"),
                         React.createElement(GhostButton, { onClick: () => setModifEnCours(enModif ? null : e.id) }, enModif ? "Fermer" : "Modifier l'abonnement"))),
                 enModif && (React.createElement("div", { className: "mt-3 grid gap-2 border-t pt-3 sm:grid-cols-4 sm:items-end", style: { borderColor: C.border } },
                     React.createElement(Field, { label: "Formule" },
