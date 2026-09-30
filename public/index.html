@@ -8451,12 +8451,111 @@ function Dashboard({ data, onOuvrirDossier, peutRecouvrer, role, nomEtablissemen
 /* ------------------------------------------------------------------ */
 /* App principale                                                      */
 /* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ */
+/* Bilan de fin de journée — Direction / Comptabilité                 */
+/* ------------------------------------------------------------------ */
+function decalerJourISO(iso, delta) {
+    const d = new Date(iso + "T12:00:00");
+    d.setDate(d.getDate() + delta);
+    return d.toISOString().slice(0, 10);
+}
+function BilanJourTab({ data, nomEtablissement }) {
+    const h = React.createElement;
+    const [date, setDate] = useState(todayISO());
+    const [copie, setCopie] = useState(false);
+    const bord = calculerBordereauCaisse(data, date, null, "Direction");
+    const parMode = Object.fromEntries(MODES_BORDEREAU.map((m) => [m, bord.lignes.reduce((s, l) => s + l.parMode[m], 0)]));
+    const nbOperations = bord.lignes.reduce((s, l) => s + l.operations, 0);
+    const nbPaiements = (data.paiements || []).filter((p) => dateComptable(p) === date).length;
+    const corrJour = (data.corrections || []).filter((c) => c.statut === "approuvee" && dateComptable(c) === date);
+    const enAttente = (data.corrections || []).filter((c) => c.statut === "en_attente" || c.statut === "soumise").length;
+    const cloture = bord.cloture;
+    const cloturee = !!cloture;
+    const impayes = listeImpayes(data)
+        .sort((a, b) => b.tranche.reste - a.tranche.reste)
+        .slice(0, 5);
+    const totalRetard = listeImpayes(data).reduce((s, l) => s + l.tranche.reste, 0);
+    const dateLisible = formatDateFR(date);
+    const resume = [
+        `Bilan de la journée du ${dateLisible} — ${nomEtablissement || "Établissement"}`,
+        "",
+        `Total encaissé : ${formatFCFA(bord.totalJournee)} (${nbPaiements} paiement${nbPaiements > 1 ? "s" : ""})`,
+        ...MODES_BORDEREAU.filter((m) => parMode[m] !== 0).map((m) => `  • ${m} : ${formatFCFA(parMode[m])}`),
+        bord.lignes.length ? "Par caissier :" : "Aucun encaissement ce jour.",
+        ...bord.lignes.map((l) => `  • ${l.caissierNom} : ${formatFCFA(l.total)} (${l.operations} opération${l.operations > 1 ? "s" : ""})`),
+        cloturee ? `Clôture de caisse : effectuée — écart ${bord.ecartGlobal === 0 ? "nul" : formatFCFA(bord.ecartGlobal)}` : "Clôture de caisse : pas encore effectuée",
+        `Impayés en retard : ${formatFCFA(totalRetard)}`,
+    ].join("\n");
+    const copier = async () => {
+        try {
+            await navigator.clipboard.writeText(resume);
+            setCopie(true);
+            setTimeout(() => setCopie(false), 2500);
+        } catch (e) {
+            window.prompt("Copiez ce résumé :", resume);
+        }
+    };
+    const stat = (label, valeur, tone) => h(Card, { key: label }, h("div", { className: "text-xs", style: { color: C.muted } }, label), h("div", { className: "mt-1 text-lg" }, valeur === null ? "—" : h(Money, { tone }, valeur)));
+    return h("div", null,
+        h(SectionTitle, { sub: "Un coup d'œil sur la journée : qui a encaissé quoi, l'état de la caisse et les plus gros impayés." }, "Bilan du jour"),
+        h(Card, { style: { marginBottom: 12 } },
+            h("div", { className: "flex flex-wrap items-end gap-2" },
+                h(GhostButton, { onClick: () => setDate(decalerJourISO(date, -1)) }, "← Veille"),
+                h("div", { style: { minWidth: 170 } }, h(Field, { label: "Journée" }, h("input", { style: inputStyle, type: "date", value: date, max: todayISO(), onChange: (e) => e.target.value && setDate(e.target.value) }))),
+                h(GhostButton, { onClick: () => setDate(decalerJourISO(date, 1)), disabled: date >= todayISO() }, "Lendemain →"),
+                date !== todayISO() && h(GhostButton, { onClick: () => setDate(todayISO()) }, "Aujourd'hui"))),
+        h("div", { className: "grid grid-cols-2 gap-3 sm:grid-cols-4", style: { marginBottom: 12 } },
+            stat("Total encaissé", bord.totalJournee, C.success),
+            h(Card, { key: "nb" }, h("div", { className: "text-xs", style: { color: C.muted } }, "Paiements enregistrés"), h("div", { className: "mt-1 text-lg", style: { fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 } }, nbPaiements)),
+            h(Card, { key: "corr" }, h("div", { className: "text-xs", style: { color: C.muted } }, "Corrections approuvées"), h("div", { className: "mt-1 text-lg", style: { fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 } }, corrJour.length)),
+            stat("Impayés en retard (total)", totalRetard, C.danger)),
+        enAttente > 0 && h("div", { style: { marginBottom: 12 } }, h(Banner, { tone: "warn" }, `${enAttente} correction${enAttente > 1 ? "s" : ""} en attente de décision (onglet Corrections).`)),
+        h(Card, { style: { marginBottom: 12 } },
+            h("div", { className: "mb-2", style: { fontWeight: 600, color: C.navy } }, "État de la caisse"),
+            cloturee
+                ? h("div", { className: "text-sm" },
+                    "Journée clôturée. Montant constaté : ", h(Money, null, bord.constateGlobal), " · enregistré : ", h(Money, null, bord.totalJournee), " · écart : ",
+                    h(Money, { tone: bord.ecartGlobal === 0 ? C.success : C.danger }, bord.ecartGlobal))
+                : h(Banner, { tone: bord.totalJournee > 0 ? "warn" : "info" }, bord.totalJournee > 0 ? "La caisse de cette journée n'est pas encore clôturée." : "Aucune clôture pour cette journée.")),
+        h(Card, { style: { marginBottom: 12 } },
+            h("div", { className: "mb-2", style: { fontWeight: 600, color: C.navy } }, "Par caissier"),
+            bord.lignes.length === 0
+                ? h("div", { className: "text-sm", style: { color: C.muted } }, "Aucun encaissement ce jour.")
+                : h("div", { className: "ceres-table-wrap" }, h("table", { className: "w-full text-sm" },
+                    h("thead", null, h("tr", { className: "text-left text-xs", style: { color: C.muted } },
+                        h("th", { className: "pb-2" }, "Caissier"), h("th", { className: "pb-2 text-right" }, "Opér."),
+                        ...MODES_BORDEREAU.map((m) => h("th", { key: m, className: "pb-2 text-right" }, m)),
+                        h("th", { className: "pb-2 text-right" }, "Total"))),
+                    h("tbody", null,
+                        ...bord.lignes.map((l) => h("tr", { key: l.caissierNom + l.caissierId, style: { borderTop: `1px solid ${C.border}` } },
+                            h("td", { className: "py-2" }, l.caissierNom), h("td", { className: "py-2 text-right" }, l.operations),
+                            ...MODES_BORDEREAU.map((m) => h("td", { key: m, className: "py-2 text-right" }, h(Money, null, l.parMode[m]))),
+                            h("td", { className: "py-2 text-right" }, h(Money, null, l.total)))),
+                        h("tr", { style: { borderTop: `2px solid ${C.border}`, fontWeight: 600 } },
+                            h("td", { className: "py-2" }, "Total"), h("td", { className: "py-2 text-right" }, nbOperations),
+                            ...MODES_BORDEREAU.map((m) => h("td", { key: m, className: "py-2 text-right" }, h(Money, null, parMode[m]))),
+                            h("td", { className: "py-2 text-right" }, h(Money, null, bord.totalJournee))))))),
+        h(Card, { style: { marginBottom: 12 } },
+            h("div", { className: "mb-2", style: { fontWeight: 600, color: C.navy } }, "Les 5 plus gros impayés en retard"),
+            impayes.length === 0
+                ? h("div", { className: "text-sm", style: { color: C.muted } }, "Aucun impayé en retard.")
+                : h("div", { className: "space-y-2" }, impayes.map((l, i) => h("div", { key: i, className: "flex items-center justify-between gap-2 text-sm", style: { borderTop: i ? `1px solid ${C.border}` : "none", paddingTop: i ? 6 : 0 } },
+                    h("div", null, h("strong", null, `${l.eleve.prenom || ""} ${l.eleve.nom || ""}`.trim()), h("div", { className: "text-xs", style: { color: C.muted } }, `${l.eleve.classeNom || ""} · ${l.tranche.libelle || ""} · ${l.retard} j de retard`)),
+                    h(Money, { tone: C.danger }, l.tranche.reste))))),
+        h(Card, null,
+            h("div", { className: "mb-2", style: { fontWeight: 600, color: C.navy } }, "Partager le bilan"),
+            h("pre", { className: "mb-3 whitespace-pre-wrap text-xs", style: { background: "#f7f4ea", padding: 10, borderRadius: 8, color: C.ink, fontFamily: "'Inter', sans-serif" } }, resume),
+            h("div", { className: "flex flex-wrap gap-2" },
+                h(PrimaryButton, { onClick: copier }, copie ? "Copié ✓" : "Copier le résumé"),
+                h(GhostButton, { onClick: () => window.open("https://wa.me/?text=" + encodeURIComponent(resume), "_blank", "noopener,noreferrer") }, "Envoyer par WhatsApp"))));
+}
 const TABS = [
     { id: "accueil", label: "Vue d'ensemble", icon: LayoutDashboard },
     { id: "classes", label: "Classes & grilles", icon: GraduationCap },
     { id: "eleves", label: "Élèves", icon: Users },
     { id: "import", label: "Import", icon: Plus },
     { id: "passage-annuel", label: "Passage annuel", icon: History },
+    { id: "bilan-jour", label: "Bilan du jour", icon: LayoutDashboard },
     { id: "encaissement", label: "Encaissement", icon: Wallet },
     { id: "recus", label: "Reçus", icon: Receipt },
     { id: "corrections", label: "Corrections", icon: History },
@@ -8481,9 +8580,9 @@ const ROLES = [
     "Contrôle (lecture seule)",
 ];
 const ACCES_ONGLETS = {
-    "Direction": ["accueil", "classes", "eleves", "import", "passage-annuel", "encaissement", "recus", "corrections", "recouvrement", "rapprochement", "cloture", "ecarts-caisse", "utilisateurs", "etablissement"],
+    "Direction": ["accueil", "bilan-jour", "classes", "eleves", "import", "passage-annuel", "encaissement", "recus", "corrections", "recouvrement", "rapprochement", "cloture", "ecarts-caisse", "utilisateurs", "etablissement"],
     "Administration établissement": ["accueil", "classes", "eleves"],
-    "Comptabilité": ["accueil", "eleves", "encaissement", "recus", "corrections", "rapprochement", "cloture", "ecarts-caisse"],
+    "Comptabilité": ["accueil", "bilan-jour", "eleves", "encaissement", "recus", "corrections", "rapprochement", "cloture", "ecarts-caisse"],
     "Chef de caisse": ["accueil", "eleves", "encaissement", "recus", "cloture", "ecarts-caisse"],
     "Caisse": ["accueil", "encaissement", "recus", "cloture"],
     "Recouvrement": ["accueil", "recouvrement", "rapprochement", "recus"],
@@ -9747,6 +9846,7 @@ function CeresNoyauFinancier() {
         })),
         React.createElement("div", { className: "mx-auto max-w-7xl px-3 py-4 sm:px-5 sm:py-6" },
             activeTab === "accueil" && React.createElement(Dashboard, { data: data, role: role, nomEtablissement: nomEtablissementPourRecu(etablissementActuel, (profil && profil.modeDemo) === true), peutRecouvrer: ongletsAutorises.includes("recouvrement"), onOuvrirDossier: (echeanceId) => { setCibleRecouvrement(echeanceId); setActiveTab("recouvrement"); } }),
+            activeTab === "bilan-jour" && React.createElement(BilanJourTab, { data: data, nomEtablissement: nomEtablissementPourRecu(etablissementActuel, (profil && profil.modeDemo) === true) }),
             activeTab === "classes" && React.createElement(ClassesTab, { data: data, setData: setData, role: role, moi: profil, rafraichirDonnees: rafraichirDonnees }),
             activeTab === "eleves" && React.createElement(ElevesTab, { data: data, setData: setData, moi: profil, rafraichirDonnees: rafraichirDonnees }),
             activeTab === "import" && React.createElement(ImportTab, { data: data, moi: profil, rafraichirDonnees: rafraichirDonnees }),
