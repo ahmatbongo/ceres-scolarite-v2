@@ -78,6 +78,18 @@ const FONT_IMPORT = `
 
 .ceres-h2 { font-size: 22px; }
 .ceres-tapline { padding: 6px 4px; display: inline-block; }
+.ceres-bottomnav { display: none; }
+@media (max-width: 640px) {
+  button, select, textarea, input:not([type=checkbox]):not([type=radio]) { min-height: 44px; }
+  select, textarea, input:not([type=checkbox]):not([type=radio]) { font-size: 16px !important; }
+  input[type=checkbox], input[type=radio] { width: 22px; height: 22px; }
+  .ceres-tapline { padding: 12px 8px; }
+  .ceres-tabstrip button { min-height: 48px; padding-left: 14px; padding-right: 14px; font-size: 15px; }
+  .ceres-avec-barre .ceres-tabstrip { display: none; }
+  .ceres-avec-barre { padding-bottom: 76px; }
+  .ceres-bottomnav { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; background: #fff; border-top: 1px solid #e5e0d3; box-shadow: 0 -2px 8px rgba(0,0,0,.06); padding-bottom: env(safe-area-inset-bottom); }
+  .ceres-bottomnav button { flex: 1 1 0; min-height: 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 12px; font-weight: 600; }
+}
 
 @media (max-width: 480px) {
   .ceres-h2 { font-size: 18px; }
@@ -9659,7 +9671,7 @@ function CeresNoyauFinancier() {
             saveErrorDetail && (React.createElement("div", { className: "mb-3 rounded p-2", style: { background: "#fff", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: C.danger, wordBreak: "break-word" } }, saveErrorDetail)),
             React.createElement("button", { onClick: handleDeconnexion, className: "rounded px-3 py-1.5 text-sm", style: { border: `1px solid ${C.border}`, color: C.navy } }, "Se d\u00E9connecter et r\u00E9essayer"))) : ("Chargement de ton profil…")));
     }
-    return (React.createElement("div", { style: { fontFamily: "'Inter', sans-serif", background: C.cream, minHeight: 600 } },
+    return (React.createElement("div", { className: tabsVisibles.length >= 2 && tabsVisibles.length <= 6 ? "ceres-avec-barre" : "", style: { fontFamily: "'Inter', sans-serif", background: C.cream, minHeight: 600 } },
         React.createElement("style", null, FONT_IMPORT),
         React.createElement("div", { style: { background: C.navy, color: "#fff" } },
             React.createElement("div", { className: "mx-auto max-w-7xl px-3 py-3 sm:px-5" },
@@ -9725,6 +9737,14 @@ function CeresNoyauFinancier() {
                     React.createElement(Icon, { size: 15 }),
                     t.label));
             }))),
+        tabsVisibles.length >= 2 && tabsVisibles.length <= 6 && React.createElement("nav", { className: "ceres-bottomnav", "aria-label": "Navigation principale" }, tabsVisibles.map((t) => {
+            const Icon = t.icon;
+            const isActive = activeTab === t.id;
+            const court = { accueil: "Accueil", encaissement: "Encaisser", cloture: "Clôture", recouvrement: "Relances", rapprochement: "Pointage", classes: "Classes" }[t.id] || t.label;
+            return React.createElement("button", { key: t.id, onClick: () => setActiveTab(t.id), "aria-current": isActive ? "page" : undefined, style: { color: isActive ? C.navy : C.muted, background: isActive ? "#f4efe2" : "transparent", borderTop: isActive ? `3px solid ${C.gold}` : "3px solid transparent" } },
+                React.createElement(Icon, { size: 22 }),
+                React.createElement("span", null, court));
+        })),
         React.createElement("div", { className: "mx-auto max-w-7xl px-3 py-4 sm:px-5 sm:py-6" },
             activeTab === "accueil" && React.createElement(Dashboard, { data: data, role: role, nomEtablissement: nomEtablissementPourRecu(etablissementActuel, (profil && profil.modeDemo) === true), peutRecouvrer: ongletsAutorises.includes("recouvrement"), onOuvrirDossier: (echeanceId) => { setCibleRecouvrement(echeanceId); setActiveTab("recouvrement"); } }),
             activeTab === "classes" && React.createElement(ClassesTab, { data: data, setData: setData, role: role, moi: profil, rafraichirDonnees: rafraichirDonnees }),
