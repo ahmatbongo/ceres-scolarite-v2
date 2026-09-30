@@ -885,10 +885,12 @@ function ClassesTab({ data, setData, role, moi, rafraichirDonnees }) {
             }
         }
     };
-    const [scolarite, setScolarite] = useState({ montant: "", nbTranches: 3, dateDepart: "", intervalle: 30, dateEffet: "" });
+    const [scolarite, setScolarite] = useState({ montant: "", nbTranches: 3, dateDepart: "", intervalle: 30, dateEffet: "", lignes: [] });
     const [autreFrais, setAutreFrais] = useState({ libelle: "Transport", montant: "", dateEcheance: "", typeFrais: "optionnel" });
     const creerClasse = () => {
         setErreur("");
+        if (role !== "Direction")
+            return setErreur("Seule la Direction peut créer une classe.");
         if (!nomClasse.trim())
             return setErreur("Le nom de la classe est obligatoire.");
         const doublon = data.classes.some((c) => c.nom.trim().toLowerCase() === nomClasse.trim().toLowerCase() && c.annee === annee);
@@ -899,6 +901,26 @@ function ClassesTab({ data, setData, role, moi, rafraichirDonnees }) {
         setNomClasse("");
         setOpenClasseId(nouvelle.id);
     };
+    // P161 — Une date et un montant propres à chaque tranche (la pratique scolaire ne suit pas un rythme fixe).
+    const nbTranchesSaisi = Math.min(12, Math.max(1, Math.floor(Number(scolarite.nbTranches) || 1)));
+    const ligneTranche = (i) => (scolarite.lignes || [])[i] || { date: "", montant: "" };
+    const majLigneTranche = (i, patch) => setScolarite((sc) => {
+        const l = [...(sc.lignes || [])];
+        while (l.length <= i)
+            l.push({ date: "", montant: "" });
+        l[i] = { ...l[i], ...patch };
+        return { ...sc, lignes: l };
+    });
+    const repartirEgalement = () => {
+        const total = Math.floor(Number(scolarite.montant) || 0);
+        if (total <= 0)
+            return setErreur("Saisissez d'abord le montant annuel de la scolarité.");
+        const base = Math.floor(total / nbTranchesSaisi);
+        const reste = total - base * nbTranchesSaisi;
+        setErreur("");
+        setScolarite((sc) => ({ ...sc, lignes: Array.from({ length: nbTranchesSaisi }, (_, i) => ({ date: ((sc.lignes || [])[i] || {}).date || "", montant: String(base + (i === nbTranchesSaisi - 1 ? reste : 0)) })) }));
+    };
+    const sommeTranchesSaisies = Array.from({ length: nbTranchesSaisi }, (_, i) => Number(ligneTranche(i).montant) || 0).reduce((a, b) => a + b, 0);
     const scolariteDejaDefinie = (classeId) => data.frais.some((f) => f.classeId === classeId && f.estScolarite);
     const genererScolarite = async (classeId) => {
         setErreur("");
@@ -909,6 +931,28 @@ function ClassesTab({ data, setData, role, moi, rafraichirDonnees }) {
         if (!total || total <= 0)
             return setErreur("Le montant annuel de la scolarité doit être supérieur à 0.");
         const dejaDefinie = scolariteDejaDefinie(classeId);
+        const lignesSaisies = Array.from({ length: nbTranchesSaisi }, (_, i) => ligneTranche(i));
+        const montantsRemplis = lignesSaisies.filter((l) => String(l.montant).trim() !== "").length;
+        let montantsTranches = null;
+        if (montantsRemplis > 0) {
+            if (montantsRemplis < nbTranchesSaisi)
+                return setErreur("Renseignez le montant de chaque tranche, ou laissez-les tous vides pour un partage égal.");
+            montantsTranches = lignesSaisies.map((l) => Number(l.montant));
+            if (montantsTranches.some((m) => !Number.isInteger(m) || m <= 0))
+                return setErreur("Chaque tranche doit avoir un montant entier supérieur à 0.");
+            const somme = montantsTranches.reduce((a, b) => a + b, 0);
+            if (somme !== total)
+                return setErreur(`La somme des tranches (${formatFCFA(somme)}) doit être égale à la scolarité annuelle (${formatFCFA(total)}) : écart de ${formatFCFA(Math.abs(total - somme))}.`);
+        }
+        const datesRemplies = lignesSaisies.filter((l) => l.date).length;
+        const datesTranches = datesRemplies > 0 ? lignesSaisies.map((l) => l.date || "") : null;
+        if (datesTranches) {
+            const ordonnees = datesTranches.filter(Boolean);
+            for (let k = 1; k < ordonnees.length; k++) {
+                if (ordonnees[k] < ordonnees[k - 1])
+                    return setErreur("Les dates d'échéance doivent se suivre dans l'ordre (la tranche suivante ne peut pas être avant la précédente).");
+            }
+        }
         if (dejaDefinie && !scolarite.dateEffet)
             return setErreur("Une grille existe déjà pour cette classe : indique une date d'effet pour créer une nouvelle version. Les élèves déjà inscrits ne sont jamais affectés — seules les nouvelles inscriptions, à partir de cette date, utiliseront la nouvelle grille.");
         setEnvoiScolarite(true);
@@ -917,13 +961,15 @@ function ClassesTab({ data, setData, role, moi, rafraichirDonnees }) {
                 p_classe_id: classeId,
                 p_montant_total: total,
                 p_nb_tranches: n,
-                p_date_depart: scolarite.dateDepart || null,
-                p_intervalle_jours: Number(scolarite.intervalle) || 30,
+                p_date_depart: null,
+                p_intervalle_jours: 30,
                 p_date_effet: dejaDefinie ? scolarite.dateEffet : null,
                 p_utilisateur_id: moi === null || moi === void 0 ? void 0 : moi.id,
+                p_dates_tranches: datesTranches,
+                p_montants_tranches: montantsTranches,
             });
             await rafraichirDonnees();
-            setScolarite({ montant: "", nbTranches: 3, dateDepart: "", intervalle: 30, dateEffet: "" });
+            setScolarite({ montant: "", nbTranches: 3, dateDepart: "", intervalle: 30, dateEffet: "", lignes: [] });
         }
         catch (e) {
             setErreur(String((e === null || e === void 0 ? void 0 : e.message) || e));
@@ -995,7 +1041,7 @@ function ClassesTab({ data, setData, role, moi, rafraichirDonnees }) {
                 React.createElement(Field, { label: "Ann\u00E9e scolaire" },
                     React.createElement("input", { style: inputStyle, value: annee, onChange: (e) => setAnnee(e.target.value) })),
                 React.createElement("div", { className: "flex items-end" },
-                    React.createElement(PrimaryButton, { onClick: creerClasse, icon: React.createElement(Plus, { size: 16 }) }, "Cr\u00E9er la classe"))),
+                    React.createElement(PrimaryButton, { onClick: creerClasse, disabled: role !== "Direction", icon: React.createElement(Plus, { size: 16 }) }, "Cr\u00E9er la classe"))),
             erreur && !openClasseId && (React.createElement("div", { className: "mt-3" },
                 React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))),
         React.createElement("div", { className: "space-y-3" },
@@ -1064,16 +1110,34 @@ function ClassesTab({ data, setData, role, moi, rafraichirDonnees }) {
                                                             React.createElement(Money, { tone: C.navy }, totalVersion))))))));
                                 })));
                         })(),
-                        peutFixerTarifs && (React.createElement("div", { className: "mb-4 grid gap-2 sm:grid-cols-5 sm:items-end" },
-                            React.createElement(Field, { label: "Scolarit\u00E9 annuelle (FCFA)", hint: "inscription incluse" },
-                                React.createElement("input", { style: inputStyle, type: "number", onWheel: bloquerMolette, min: "0", value: scolarite.montant, onChange: (e) => setScolarite({ ...scolarite, montant: e.target.value }) })),
-                            React.createElement(Field, { label: "Nombre de tranches" },
-                                React.createElement("input", { style: inputStyle, type: "number", onWheel: bloquerMolette, min: "1", value: scolarite.nbTranches, onChange: (e) => setScolarite({ ...scolarite, nbTranches: e.target.value }) })),
-                            React.createElement(Field, { label: "1\u02B3\u1D49 \u00E9ch\u00E9ance (optionnel)" },
-                                React.createElement("input", { style: inputStyle, type: "date", value: scolarite.dateDepart, onChange: (e) => setScolarite({ ...scolarite, dateDepart: e.target.value }) })),
-                            scolariteItems.length > 0 && (React.createElement(Field, { label: "Date d'effet (nouvelle version)", hint: "obligatoire si une grille existe d\u00e9j\u00e0" },
-                                React.createElement("input", { style: inputStyle, type: "date", value: scolarite.dateEffet, onChange: (e) => setScolarite({ ...scolarite, dateEffet: e.target.value }) }))),
-                            React.createElement(PrimaryButton, { onClick: () => genererScolarite(cls.id), disabled: envoiScolarite, icon: React.createElement(Plus, { size: 16 }) }, scolariteItems.length > 0 ? "Cr\u00E9er une nouvelle version" : "G\u00E9n\u00E9rer les tranches"))),
+                        peutFixerTarifs && (React.createElement("div", { className: "mb-4" },
+                            React.createElement("div", { className: "grid gap-2 sm:grid-cols-3 sm:items-end" },
+                                React.createElement(Field, { label: "Scolarit\u00E9 annuelle (FCFA)", hint: "inscription incluse" },
+                                    React.createElement("input", { style: inputStyle, type: "number", onWheel: bloquerMolette, min: "0", value: scolarite.montant, onChange: (e) => setScolarite({ ...scolarite, montant: e.target.value }) })),
+                                React.createElement(Field, { label: "Nombre de tranches" },
+                                    React.createElement("input", { style: inputStyle, type: "number", onWheel: bloquerMolette, min: "1", max: "12", value: scolarite.nbTranches, onChange: (e) => setScolarite({ ...scolarite, nbTranches: e.target.value }) })),
+                                scolariteItems.length > 0 && (React.createElement(Field, { label: "Date d'effet (nouvelle version)", hint: "obligatoire si une grille existe d\u00e9j\u00e0" },
+                                    React.createElement("input", { style: inputStyle, type: "date", value: scolarite.dateEffet, onChange: (e) => setScolarite({ ...scolarite, dateEffet: e.target.value }) })))),
+                            React.createElement("div", { className: "mt-3 mb-1 text-xs font-medium uppercase tracking-wide", style: { color: C.muted } }, "Tranches : date d'\u00E9ch\u00E9ance et montant de chacune"),
+                            React.createElement("div", { className: "ceres-table-wrap" },
+                                React.createElement("table", { className: "w-full text-sm" },
+                                    React.createElement("tbody", null,
+                                        Array.from({ length: nbTranchesSaisi }, (_, i) => (React.createElement("tr", { key: i, style: { borderTop: `1px solid ${C.border}` } },
+                                            React.createElement("td", { className: "py-1.5 pr-2", style: { whiteSpace: "nowrap" } }, i === 0 ? "1\u02B3\u1D49 tranche (inscription)" : `Tranche ${i + 1}`),
+                                            React.createElement("td", { className: "py-1.5 pr-2" },
+                                                React.createElement("input", { style: inputStyle, type: "date", "aria-label": `Date d'\u00E9ch\u00E9ance de la tranche ${i + 1}`, value: ligneTranche(i).date, onChange: (e) => majLigneTranche(i, { date: e.target.value }) })),
+                                            React.createElement("td", { className: "py-1.5" },
+                                                React.createElement("input", { style: inputStyle, type: "number", min: "0", placeholder: "Montant (FCFA)", onWheel: bloquerMolette, "aria-label": `Montant de la tranche ${i + 1}`, value: ligneTranche(i).montant, onChange: (e) => majLigneTranche(i, { montant: e.target.value }) })))))))),
+                            React.createElement("div", { className: "mt-2 text-xs", style: { color: C.muted } },
+                                "Les dates sont facultatives et doivent se suivre dans l'ordre. Laissez tous les montants vides pour un partage \u00E9gal, ou saisissez-les (la 1\u02B3\u1D49 tranche est souvent la plus \u00E9lev\u00E9e). ",
+                                sommeTranchesSaisies > 0 && Number(scolarite.montant) > 0
+                                    ? (sommeTranchesSaisies === Number(scolarite.montant)
+                                        ? `Total des tranches : ${formatFCFA(sommeTranchesSaisies)} \u2014 \u00E9gal \u00E0 la scolarit\u00E9 annuelle.`
+                                        : `Total des tranches : ${formatFCFA(sommeTranchesSaisies)} \u2014 \u00E9cart de ${formatFCFA(Math.abs(Number(scolarite.montant) - sommeTranchesSaisies))} avec la scolarit\u00E9 annuelle.`)
+                                    : ""),
+                            React.createElement("div", { className: "mt-3 flex flex-wrap gap-2" },
+                                React.createElement(GhostButton, { onClick: repartirEgalement }, "R\u00E9partir \u00E0 parts \u00E9gales"),
+                                React.createElement(PrimaryButton, { onClick: () => genererScolarite(cls.id), disabled: envoiScolarite, icon: React.createElement(Plus, { size: 16 }) }, scolariteItems.length > 0 ? "Cr\u00E9er une nouvelle version" : "G\u00E9n\u00E9rer les tranches")))),
                         autresItems.length > 0 && (React.createElement("div", { className: "mb-3" },
                             React.createElement("div", { className: "mb-1 text-xs font-medium uppercase tracking-wide", style: { color: C.muted } }, "Autres frais — catalogue"),
                             React.createElement("div", { className: "ceres-table-wrap" },
@@ -1419,8 +1483,12 @@ function ElevesTab({ data, setData, moi, rafraichirDonnees }) {
     const peutModifierCoordonnees = (moi === null || moi === void 0 ? void 0 : moi.role) === "Direction" || (moi === null || moi === void 0 ? void 0 : moi.role) === "Chef de caisse";
     const classeChoisie = data.classes.find((c) => c.id === form.classeId);
     const grilleChoisie = grilleActive(data.frais, form.classeId);
+    const ROLES_INSCRIPTION = ["Direction", "Administration établissement", "Secrétariat"];
+    const peutInscrire = !!moi && ROLES_INSCRIPTION.includes(moi.role);
     const inscrire = async (forcer) => {
         setErreur("");
+        if (!peutInscrire)
+            return setErreur("Ce profil n'est pas autorisé à inscrire un élève (Direction, Administration établissement ou Secrétariat).");
         if (!form.nom.trim() || !form.prenom.trim())
             return setErreur("Nom et prénom sont obligatoires.");
         if (!form.classeId)
@@ -1600,6 +1668,8 @@ function ElevesTab({ data, setData, moi, rafraichirDonnees }) {
     };
     const accorderAvantage = (eleveId) => {
         setErreur("");
+        if (!moi || moi.role !== "Direction")
+            return setErreur("Seule la Direction peut accorder un avantage (remise ou exonération).");
         const montant = Number(avantageForm.montant);
         if (!avantageForm.echeanceId)
             return setErreur("Choisissez la tranche concernée.");
@@ -1664,7 +1734,7 @@ function ElevesTab({ data, setData, moi, rafraichirDonnees }) {
                         `Un élève du même nom existe déjà dans cette classe : ${similaires.map((s) => s.matricule).join(", ")}. `,
                         React.createElement("button", { className: "underline font-medium", onClick: () => inscrire(true) }, "Inscrire quand m\u00eame"))),
                     React.createElement("div", null,
-                        React.createElement(PrimaryButton, { onClick: () => inscrire(false), disabled: envoi, icon: React.createElement(Plus, { size: 16 }) }, "Inscrire l'\u00E9l\u00E8ve")),
+                        React.createElement(PrimaryButton, { onClick: () => inscrire(false), disabled: envoi || !peutInscrire, icon: React.createElement(Plus, { size: 16 }) }, "Inscrire l'\u00E9l\u00E8ve")),
                     erreur && (React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))),
             React.createElement("div", { className: "space-y-2" },
                 data.eleves.length === 0 && React.createElement(Banner, { tone: "info" }, "Aucun \u00E9l\u00E8ve inscrit pour l'instant."),
@@ -1831,7 +1901,7 @@ function ElevesTab({ data, setData, moi, rafraichirDonnees }) {
                             React.createElement(Field, { label: "Motif (obligatoire)" },
                                 React.createElement("input", { style: inputStyle, value: avantageForm.motif, onChange: (e) => setAvantageForm({ ...avantageForm, motif: e.target.value }) })))),
                     React.createElement("div", { className: "mt-3" },
-                        React.createElement(GhostButton, { onClick: () => accorderAvantage(eleveSelectionne.id), icon: React.createElement(Plus, { size: 14 }) }, "Accorder l'avantage")),
+                        React.createElement(GhostButton, { onClick: () => accorderAvantage(eleveSelectionne.id), disabled: !moi || moi.role !== "Direction", icon: React.createElement(Plus, { size: 14 }) }, "Accorder l'avantage")),
                     (moi === null || moi === void 0 ? void 0 : moi.role) === "Direction" && (React.createElement("div", { className: "mt-4 border-t pt-3", style: { borderColor: C.border } },
                         React.createElement("div", { className: "mb-1 text-xs font-medium uppercase tracking-wide", style: { color: C.muted } }, "Exception d'\u00e9ch\u00e9ance individuelle"),
                         React.createElement("div", { className: "text-xs mb-2", style: { color: C.muted } }, "R\u00e9serv\u00e9 aux cas particuliers (accord familial pr\u00e9cis) \u2014 la modification est conserv\u00e9e dans un historique, jamais silencieusement \u00e9cras\u00e9e."),
@@ -7674,7 +7744,8 @@ function ClotureTab({ data, moi, dateInitiale, blocageCaisse, cloturesVerrouille
         if (dateInitiale)
             setDate(dateInitiale);
     }, [dateInitiale]);
-    const peutVerrouiller = role === "Direction" || role === "Chef de caisse";
+    const peutVerrouiller = role === "Direction";
+    const peutMouvement = role === "Direction" || role === "Chef de caisse";
     const peutReouvrir = role === "Direction";
     const verrouillee = cloturesVerrouillees.includes(date);
     const mouvementsJour = data.mouvementsCaisse.filter((m) => m.dateMouvement === date);
@@ -7816,7 +7887,7 @@ function ClotureTab({ data, moi, dateInitiale, blocageCaisse, cloturesVerrouille
             !verrouillee && !peutVerrouiller && (React.createElement("p", { className: "mt-2 text-xs", style: { color: C.muted } }, "Ce profil peut saisir le montant constat\u00E9, mais seule la Direction peut valider et verrouiller la journ\u00E9e.")),
             erreur && (React.createElement("div", { className: "mt-3" },
                 React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))),
-        peutVerrouiller && (React.createElement(Card, { style: { marginBottom: 16 } },
+        peutMouvement && (React.createElement(Card, { style: { marginBottom: 16 } },
             React.createElement("div", { style: { fontWeight: 600, marginBottom: 8 } }, "Mouvement de caisse (fonds d'ouverture, sortie autoris\u00E9e...)"),
             verrouillee && React.createElement("div", { className: "mb-2 text-xs", style: { color: C.muted } }, "Journ\u00E9e verrouill\u00E9e \u2014 rouvre-la exceptionnellement pour ajouter un mouvement."),
             React.createElement("div", { className: "grid gap-2 sm:grid-cols-5 sm:items-end" },
@@ -8201,12 +8272,12 @@ function Dashboard({ data, onOuvrirDossier, peutRecouvrer, role, nomEtablissemen
     }, [typePeriode, debutPersonnalise, finPersonnalisee, anneeActive, anneesDisponibles.join("|"), tentativeHorodatage]);
     if (chargementPeriode) {
         return React.createElement("div", null,
-            React.createElement(SectionTitle, { sub: "Les mêmes chiffres que dans chaque dossier individuel — jamais un total qui ne se retrouve pas dans le détail." }, "Vue d'ensemble — école d'entraînement"),
+            React.createElement(SectionTitle, { sub: "Les mêmes chiffres que dans chaque dossier individuel — jamais un total qui ne se retrouve pas dans le détail." }, "Vue d'ensemble — " + (nomEtablissement || "votre établissement")),
             React.createElement(Banner, { tone: "info" }, "Recalcul de toute la Vue d’ensemble en cours…"));
     }
     if (!selectionAppliquee) {
         return React.createElement("div", null,
-            React.createElement(SectionTitle, { sub: "Les mêmes chiffres que dans chaque dossier individuel — jamais un total qui ne se retrouve pas dans le détail." }, "Vue d'ensemble — école d'entraînement"),
+            React.createElement(SectionTitle, { sub: "Les mêmes chiffres que dans chaque dossier individuel — jamais un total qui ne se retrouve pas dans le détail." }, "Vue d'ensemble — " + (nomEtablissement || "votre établissement")),
             React.createElement(Card, { style: { marginBottom: 12 } },
                 React.createElement("div", { className: "flex flex-wrap items-end gap-3" },
                     React.createElement(Field, { label: "Période" },
@@ -8324,7 +8395,7 @@ function Dashboard({ data, onOuvrirDossier, peutRecouvrer, role, nomEtablissemen
                 React.createElement("span", { style: { color: C.ink } }, n.nom, " ", React.createElement("span", { style: { color: C.muted } }, "\u00B7 ", n.nbEleves, " \u00E9l\u00E8ve(s)")),
                 React.createElement(Money, { tone: C.danger }, n.retard))))));
     return (React.createElement("div", null,
-        React.createElement(SectionTitle, { sub: "Les m\u00EAmes chiffres que dans chaque dossier individuel \u2014 jamais un total qui ne se retrouve pas dans le d\u00E9tail." }, "Vue d'ensemble \u2014 \u00E9cole d'entra\u00EEnement"),
+        React.createElement(SectionTitle, { sub: "Les m\u00EAmes chiffres que dans chaque dossier individuel \u2014 jamais un total qui ne se retrouve pas dans le d\u00E9tail." }, "Vue d'ensemble \u2014 " + (nomEtablissement || "votre \u00E9tablissement")),
         React.createElement(Card, { style: { marginBottom: 12 } },
             React.createElement("div", { className: "flex flex-wrap items-end gap-3" },
                 React.createElement(Field, { label: "Période" },
