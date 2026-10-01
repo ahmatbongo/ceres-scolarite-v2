@@ -8796,9 +8796,10 @@ function AdministrationCeresTab({ moi }) {
     };
     const liste = [...visibles].sort((x, y) => urgence(x) - urgence(y));
     const nbActives = visibles.filter((e) => e.statutAbonnement === "Actif").length;
-    const nbEchues = visibles.filter((e) => e.statutAbonnement === "Actif" && joursAvantEcheance(e.dateEcheance) !== null && joursAvantEcheance(e.dateEcheance) < 0).length;
+    const nbEchues = visibles.filter((e) => e.statutAbonnement === "Actif" && joursAvantEcheance(e.dateEcheance) !== null && joursAvantEcheance(e.dateEcheance) < 0 && joursAvantEcheance(e.dateEcheance) >= -7).length;
     const nbBientot = visibles.filter((e) => { const j = joursAvantEcheance(e.dateEcheance); return e.statutAbonnement === "Actif" && j !== null && j >= 0 && j <= 30; }).length;
-    const nbBloquees = visibles.filter((e) => e.statutAbonnement !== "Actif").length;
+    const bloqueeAuto = (e) => { const j = joursAvantEcheance(e.dateEcheance); return e.statutAbonnement === "Actif" && j !== null && j < -7; };
+    const nbBloquees = visibles.filter((e) => e.statutAbonnement !== "Actif" || bloqueeAuto(e)).length;
     const revenuMensuel = visibles.filter((e) => e.statutAbonnement === "Actif").reduce((s, e) => s + (Number(e.tarifFcfa) || 0), 0);
     const emailsDirection = (e) => directions.filter((d) => d.etablissementId === e.id).map((d) => d.email).filter(Boolean);
     const lienRappel = (e) => {
@@ -8870,7 +8871,7 @@ function AdministrationCeresTab({ moi }) {
                             const j = joursAvantEcheance(e.dateEcheance);
                             if (j === null || e.statutAbonnement !== "Actif")
                                 return null;
-                            const txt = j < 0 ? `échue depuis ${-j} j` : j === 0 ? "échéance aujourd'hui" : `dans ${j} j`;
+                            const txt = j < -7 ? `échue depuis ${-j} j — bloquée automatiquement` : j < 0 ? `échue depuis ${-j} j (grâce : ${7 + j} j restants)` : j === 0 ? "échéance aujourd'hui" : `dans ${j} j`;
                             const col = j < 0 ? C.danger : j <= 30 ? C.warn : C.muted;
                             return React.createElement("span", { className: "text-xs", style: { color: col, fontWeight: 600 } }, txt);
                         })(),
@@ -9675,7 +9676,7 @@ function CeresNoyauFinancier() {
                 // P138 — statut d'abonnement réel de l'établissement, pour affichage
                 // seulement : le blocage effectif des écritures est déjà appliqué
                 // côté base (RLS). Discret et non bloquant si cet appel échoue.
-                sb(`etablissements?id=eq.${encodeURIComponent(p.etablissementId)}&select=nom,statut_abonnement,type,adresse,ville,telephone,email_contact,mention_legale,logo_data`)
+                sb(`etablissements?id=eq.${encodeURIComponent(p.etablissementId)}&select=nom,statut_abonnement,date_echeance,type,adresse,ville,telephone,email_contact,mention_legale,logo_data`)
                     .then((r) => setEtablissementActuel(r && r[0] ? versObjetJs("etablissements", r[0]) : null))
                     .catch(() => setEtablissementActuel(null));
                 // Discret et non bloquant : ne fait rien côté base si la personne
@@ -9773,7 +9774,7 @@ function CeresNoyauFinancier() {
         });
         setLoading(true);
         // P152 : identité de l'école de démonstration (lecture publique autorisée par la base)
-        sb(`etablissements?id=eq.${encodeURIComponent(etabId)}&select=nom,statut_abonnement,type,adresse,ville,telephone,email_contact,mention_legale,logo_data`)
+        sb(`etablissements?id=eq.${encodeURIComponent(etabId)}&select=nom,statut_abonnement,date_echeance,type,adresse,ville,telephone,email_contact,mention_legale,logo_data`)
             .then((r) => setEtablissementActuel(r && r[0] ? versObjetJs("etablissements", r[0]) : null))
             .catch(() => { });
         try {
@@ -9968,6 +9969,37 @@ function CeresNoyauFinancier() {
             " \u2014 profil ",
             React.createElement("strong", null, profil.role),
             "."))),
+        // P163 : abonnement Actif mais échéance dépassée — 7 jours de grâce (écriture encore possible),
+        // puis blocage automatique côté base (etablissement_est_actif). Affichage seulement.
+        (() => {
+            const ea = etablissementActuel;
+            if ((profil === null || profil === void 0 ? void 0 : profil.modeDemo) || !ea || ea.type === "training" || ea.statutAbonnement !== "Actif" || !ea.dateEcheance)
+                return null;
+            const retard = Math.round((new Date(todayISO() + "T12:00:00") - new Date(String(ea.dateEcheance).slice(0, 10) + "T12:00:00")) / 86400000);
+            if (retard <= 0)
+                return null;
+            const GRACE = 7;
+            const quand = formatDateFR(ea.dateEcheance);
+            if (retard <= GRACE) {
+                const reste = GRACE - retard;
+                return React.createElement("div", { className: "mx-auto max-w-7xl px-3 pt-3 sm:px-5" },
+                    React.createElement(Banner, { tone: "warn", icon: React.createElement(AlertTriangle, { size: 16 }) },
+                        React.createElement("div", null,
+                            "L'abonnement est arriv\u00E9 \u00E0 \u00E9ch\u00E9ance le ",
+                            React.createElement("strong", null, quand),
+                            ". Vous pouvez encore travailler normalement ",
+                            reste === 0 ? "aujourd'hui seulement" : `pendant ${reste} jour${reste > 1 ? "s" : ""}`,
+                            " ; pass\u00E9 ce d\u00E9lai, les inscriptions et les encaissements seront bloqu\u00E9s. Contactez CERES pour renouveler.")));
+            }
+            return React.createElement("div", { className: "mx-auto max-w-7xl px-3 pt-3 sm:px-5" },
+                React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) },
+                    React.createElement("div", null,
+                        "Abonnement ",
+                        React.createElement("strong", null, "expir\u00E9"),
+                        " depuis le ",
+                        quand,
+                        " \u2014 aucune nouvelle inscription, aucun encaissement ni aucune autre \u00E9criture n'est possible tant que l'abonnement n'est pas renouvel\u00E9. La consultation des donn\u00E9es existantes reste disponible. Contactez CERES pour renouveler.")));
+        })(),
         (!(profil === null || profil === void 0 ? void 0 : profil.modeDemo) && etablissementActuel && etablissementActuel.type !== "training" && etablissementActuel.statutAbonnement && etablissementActuel.statutAbonnement !== "Actif") && (React.createElement("div", { className: "mx-auto max-w-7xl px-3 pt-3 sm:px-5" },
             React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) },
                 React.createElement("div", null,
