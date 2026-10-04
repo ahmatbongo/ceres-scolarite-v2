@@ -5458,6 +5458,11 @@ function anneeSuivante(annee) {
 /* ------------------------------------------------------------------ */
 /* Reprise de soldes — versements antérieurs à CERES (jamais en caisse) */
 /* ------------------------------------------------------------------ */
+function messageReprise(e) {
+    const brut = String((e && e.message) || e || "");
+    const m = /"message"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(brut);
+    return m ? m[1].replace(/\\"/g, '"') : brut;
+}
 function RepriseSoldesTab({ data, moi, rafraichirDonnees }) {
     const h = React.createElement;
     const [classeId, setClasseId] = useState("");
@@ -5486,7 +5491,7 @@ function RepriseSoldesTab({ data, moi, rafraichirDonnees }) {
         try {
             const res = await appelerRpc("reprendre_soldes", { p_lignes: lignes, p_motif: motif, p_justificatif: justificatif, p_confirmer: false, p_utilisateur_id: moi && moi.id });
             setApercu(res);
-        } catch (e) { setErreur(String((e && e.message) || e)); }
+        } catch (e) { setErreur(messageReprise(e)); }
         finally { setEnvoi(false); }
     };
     const confirmer = async () => {
@@ -5499,7 +5504,7 @@ function RepriseSoldesTab({ data, moi, rafraichirDonnees }) {
             await rafraichirDonnees();
             setMessage(`Reprise enregistrée : ${res.nb_eleves} élève(s), ${fmt(res.total)}.`);
             setMontants({}); setApercu(null); setMotif(""); setJustificatif("");
-        } catch (e) { setErreur(String((e && e.message) || e)); }
+        } catch (e) { setErreur(messageReprise(e)); }
         finally { setEnvoi(false); }
     };
     const annulerLot = async () => {
@@ -5508,7 +5513,7 @@ function RepriseSoldesTab({ data, moi, rafraichirDonnees }) {
             await appelerRpc("annuler_lot_reprise", { p_lot_id: lotAAnnuler, p_motif: motifAnnulation, p_utilisateur_id: moi && moi.id });
             await rafraichirDonnees();
             setLotAAnnuler(null); setMotifAnnulation(""); setMessage("Lot de reprise annulé.");
-        } catch (e) { setErreur(String((e && e.message) || e)); }
+        } catch (e) { setErreur(messageReprise(e)); }
     };
     const lots = [...(data.lotsReprise || [])].sort((a, b) => (a.creeLe < b.creeLe ? 1 : -1));
     return h("div", null,
@@ -5587,7 +5592,7 @@ function RepriseDossier({ eleve, data, moi, rafraichirDonnees }) {
             await appelerRpc("corriger_reprise_eleve", { p_eleve_id: eleve.id, p_nouveau_total: Number(String(nouveau).replace(/\D/g, "")) || 0, p_motif: motif, p_utilisateur_id: moi && moi.id });
             await rafraichirDonnees();
             setOuvert(false); setNouveau(""); setMotif("");
-        } catch (e) { setErreur(String((e && e.message) || e)); }
+        } catch (e) { setErreur(messageReprise(e)); }
         finally { setEnvoi(false); }
     };
     return h("div", { className: "mb-4 rounded border p-3 text-sm", style: { borderColor: C.border, background: C.warnBg } },
@@ -8532,7 +8537,7 @@ function Dashboard({ data, onOuvrirDossier, peutRecouvrer, role, nomEtablissemen
         { label: "Encaissé", value: encaissePeriode, isMoney: true, tone: C.success },
         { label: "Reste à recouvrer", value: totals.reste, isMoney: true, tone: C.warn },
         { label: "Dont en retard", value: totals.retard, isMoney: true, tone: C.danger },
-        ...(totals.repris > 0 ? [{ label: "Dont repris avant CERES (hors caisse)", value: totals.repris, isMoney: true, tone: C.muted }] : []),
+        ...(totals.repris > 0 ? [{ label: "Dont repris avant CERES (frais échus, hors caisse)", value: totals.repris, isMoney: true, tone: C.muted }] : []),
     ];
     // Pilotage du recouvrement (chapitre 11 du manuel) — construit sur les mêmes données, sans rien recompter en double.
     const impayesArretes = listeImpayesArretee(data, fin);
@@ -9568,7 +9573,7 @@ function EtablissementTab({ etablissementId, etablissement, modeDemo, onIdentite
             setForm((f) => ({ ...f, logoData: data }));
         }
         catch (e) {
-            setErreur(String((e && e.message) || e));
+            setErreur(messageReprise(e));
         }
     };
     const enregistrer = async () => {
@@ -9608,7 +9613,7 @@ function EtablissementTab({ etablissementId, etablissement, modeDemo, onIdentite
                 : "Identité enregistrée : elle figurera sur tous les prochains reçus.");
         }
         catch (e) {
-            setErreur(String((e && e.message) || e));
+            setErreur(messageReprise(e));
         }
         finally {
             setEnCours(false);
