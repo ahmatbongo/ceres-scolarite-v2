@@ -453,6 +453,8 @@ async function chargerDepuisSupabase(etablissementId) {
 
     // P1-26/P136 : lectures optionnelles, elles aussi strictement bornées.
     const derogationsCaisseR = await sb(`derogations_caisse?select=*&${filtreEtablissement}&order=accordee_le.desc`).catch(() => []);
+    const reprisesR = await sb(`reprises_soldes?select=*,eleves!inner(etablissement_id)&${filtreEleves}&annule=eq.false`).catch(() => []);
+    const lotsRepriseR = await sb(`reprises_lots?select=*&${filtreEtablissement}&order=cree_le.desc`).catch(() => []);
     const historiqueCoordonneesR = await sb(`historique_coordonnees_eleves?select=*&${filtreEtablissement}&order=modifie_le.desc`).catch(() => []);
 
     // P140 — retirer les objets ajoutés uniquement pour les jointures !inner avant
@@ -497,6 +499,8 @@ async function chargerDepuisSupabase(etablissementId) {
         suivisRecouvrement: nettoyer(suivisRecouvrementR, ["eleves"]).map((r) => versObjetJs("suivis_recouvrement", r)),
         mouvementsCaisse: nettoyer(mouvementsCaisseR).map((r) => versObjetJs("mouvements_caisse", r)),
         lotsImport: nettoyer(lotsImportR).map((r) => versObjetJs("lots_import", r)),
+        reprises: nettoyer(reprisesR, ["eleves"]).map((r) => versObjetJs("reprises_soldes", r)),
+        lotsReprise: nettoyer(lotsRepriseR).map((r) => versObjetJs("reprises_lots", r)),
         lotsPassageAnnuel: nettoyer(lotsPassageR).map((r) => versObjetJs("lots_passage_annuel", r)),
         duplicatasRecu: (duplicatasRecuR || []).map((r) => versObjetJs("duplicatas_recu", r)).filter((d) => paiementIdsEtab.has(d.paiementId)),
         avoirs: nettoyer(avoirsR).map((r) => versObjetJs("avoirs", r)),
@@ -630,6 +634,8 @@ function emptyData() {
         suivisRecouvrement: [],
         mouvementsCaisse: [],
         lotsImport: [],
+        reprises: [],
+        lotsReprise: [],
         lotsPassageAnnuel: [],
         duplicatasRecu: [],
         avoirs: [],
@@ -675,7 +681,8 @@ function computeDossier(eleve, data) {
         const corrections = data.corrections.filter((c) => c.statut === "approuvee" && paiementsTranche.some((p) => p.id === c.paiementId));
         const correctionsNet = corrections.reduce((s, c) => s + c.montant, 0);
         const net = Math.max(0, t.montantBrut - avantage);
-        const payeNet = paye + correctionsNet;
+        const repris = (data.reprises || []).filter((r) => r.echeanceId === t.echeanceId).reduce((s, r) => s + r.montant, 0);
+        const payeNet = paye + correctionsNet + repris;
         const reste = Math.max(0, net - payeNet);
         let statut = "Non réglée";
         if (reste <= 0)
@@ -690,6 +697,7 @@ function computeDossier(eleve, data) {
             avantage,
             net,
             paye: payeNet,
+            repris,
             reste,
             statut,
         };
@@ -701,9 +709,10 @@ function computeDossier(eleve, data) {
         avantage: acc.avantage + t.avantage,
         net: acc.net + t.net,
         paye: acc.paye + t.paye,
+        repris: acc.repris + t.repris,
         reste: acc.reste + t.reste,
         retard: acc.retard + (t.statut.includes("retard") ? t.reste : 0),
-    }), { brut: 0, avantage: 0, net: 0, paye: 0, reste: 0, retard: 0 });
+    }), { brut: 0, avantage: 0, net: 0, paye: 0, repris: 0, reste: 0, retard: 0 });
     return { tranches, totals };
 }
 // Ancienneté du retard, en jours (0 si pas encore échue ou déjà réglée).
@@ -1831,7 +1840,8 @@ function ElevesTab({ data, setData, moi, rafraichirDonnees }) {
                                     React.createElement(Money, null, t.montantBrut)),
                                 React.createElement("td", { className: "ceres-col-optional py-1.5 text-right" }, t.avantage > 0 ? React.createElement(Money, { tone: C.gold }, t.avantage) : "—"),
                                 React.createElement("td", { className: "py-1.5 text-right" },
-                                    React.createElement(Money, { tone: C.success }, t.paye)),
+                                    React.createElement(Money, { tone: C.success }, t.paye),
+                                    t.repris > 0 && React.createElement("div", { className: "text-xs", style: { color: C.muted } }, "dont " + formatFCFA(t.repris) + " repris")),
                                 React.createElement("td", { className: "py-1.5 text-right" },
                                     React.createElement(Money, { tone: t.reste > 0 ? C.warn : C.muted }, t.reste)),
                                 React.createElement("td", { className: "py-1.5 text-right" },
@@ -1850,6 +1860,7 @@ function ElevesTab({ data, setData, moi, rafraichirDonnees }) {
                                 React.createElement("td", { className: "pt-2 text-right" },
                                     React.createElement(Money, { tone: dossier.totals.reste > 0 ? C.warn : C.muted }, dossier.totals.reste)),
                                 React.createElement("td", null))))),
+                React.createElement(RepriseDossier, { key: "rep:" + eleveSelectionne.id, eleve: eleveSelectionne, data, moi, rafraichirDonnees }),
                 React.createElement(FraisOptionnelsP139, { key: eleveSelectionne.id + ":" + eleveSelectionne.classeId, eleve: eleveSelectionne, data, moi, rafraichirDonnees }),
                 (() => {
                     const promessesEleve = data.promesses.filter((p) => p.eleveId === eleveSelectionne.id);
@@ -5444,6 +5455,156 @@ function anneeSuivante(annee) {
         return "";
     return `${Number(m[1]) + 1}-${Number(m[2]) + 1}`;
 }
+/* ------------------------------------------------------------------ */
+/* Reprise de soldes — versements antérieurs à CERES (jamais en caisse) */
+/* ------------------------------------------------------------------ */
+function RepriseSoldesTab({ data, moi, rafraichirDonnees }) {
+    const h = React.createElement;
+    const [classeId, setClasseId] = useState("");
+    const [montants, setMontants] = useState({});
+    const [motif, setMotif] = useState("");
+    const [justificatif, setJustificatif] = useState("");
+    const [apercu, setApercu] = useState(null);
+    const [erreur, setErreur] = useState("");
+    const [message, setMessage] = useState("");
+    const [envoi, setEnvoi] = useState(false);
+    const [lotAAnnuler, setLotAAnnuler] = useState(null);
+    const [motifAnnulation, setMotifAnnulation] = useState("");
+    const fmt = (n) => `${Number(n || 0).toLocaleString("fr-FR")} F`;
+    const eleves = data.eleves
+        .filter((e) => e.classeId === classeId && e.statut !== "Sorti")
+        .sort((a, b) => String(a.nom + a.prenom).localeCompare(String(b.nom + b.prenom)));
+    const lignes = eleves
+        .map((e) => ({ eleve_id: e.id, montant: Number(String(montants[e.id] || "").replace(/\D/g, "")) || 0 }))
+        .filter((l) => l.montant > 0);
+    const total = lignes.reduce((s, l) => s + l.montant, 0);
+    const saisir = (id, v) => { setMontants({ ...montants, [id]: v.replace(/\D/g, "") }); setApercu(null); setMessage(""); };
+    const previsualiser = async () => {
+        setErreur(""); setMessage("");
+        if (lignes.length === 0) return setErreur("Saisis au moins un montant « déjà versé » supérieur à 0.");
+        setEnvoi(true);
+        try {
+            const res = await appelerRpc("reprendre_soldes", { p_lignes: lignes, p_motif: motif, p_justificatif: justificatif, p_confirmer: false, p_utilisateur_id: moi && moi.id });
+            setApercu(res);
+        } catch (e) { setErreur(String((e && e.message) || e)); }
+        finally { setEnvoi(false); }
+    };
+    const confirmer = async () => {
+        setErreur("");
+        if (motif.trim().length < 5) return setErreur("Le motif est obligatoire (5 caractères minimum).");
+        if (justificatif.trim().length < 5) return setErreur("Le justificatif est obligatoire (ex. : « Cahier de recettes trimestre 1, pages 3 à 9 »).");
+        setEnvoi(true);
+        try {
+            const res = await appelerRpc("reprendre_soldes", { p_lignes: lignes, p_motif: motif, p_justificatif: justificatif, p_confirmer: true, p_utilisateur_id: moi && moi.id });
+            await rafraichirDonnees();
+            setMessage(`Reprise enregistrée : ${res.nb_eleves} élève(s), ${fmt(res.total)}.`);
+            setMontants({}); setApercu(null); setMotif(""); setJustificatif("");
+        } catch (e) { setErreur(String((e && e.message) || e)); }
+        finally { setEnvoi(false); }
+    };
+    const annulerLot = async () => {
+        setErreur("");
+        try {
+            await appelerRpc("annuler_lot_reprise", { p_lot_id: lotAAnnuler, p_motif: motifAnnulation, p_utilisateur_id: moi && moi.id });
+            await rafraichirDonnees();
+            setLotAAnnuler(null); setMotifAnnulation(""); setMessage("Lot de reprise annulé.");
+        } catch (e) { setErreur(String((e && e.message) || e)); }
+    };
+    const lots = [...(data.lotsReprise || [])].sort((a, b) => (a.creeLe < b.creeLe ? 1 : -1));
+    return h("div", null,
+        h(SectionTitle, { sub: "Pour une école qui démarre en cours d'année : saisis, élève par élève, ce qui a déjà été versé avant CERES. Ces montants réduisent les soldes mais n'entrent jamais en caisse, en clôture ni en reçus." }, "Reprise de soldes"),
+        erreur && h("div", { className: "mb-3" }, h(Banner, { tone: "danger", icon: h(AlertTriangle, { size: 16 }) }, erreur)),
+        message && h("div", { className: "mb-3" }, h(Banner, { tone: "success" }, message)),
+        h(Card, { style: { marginBottom: 16 } },
+            h(Field, { label: "Classe" },
+                h("select", { style: inputStyle, value: classeId, onChange: (e) => { setClasseId(e.target.value); setMontants({}); setApercu(null); setMessage(""); } },
+                    h("option", { value: "" }, "— Choisir —"),
+                    data.classes.filter((c) => !c.archivee).map((c) => h("option", { key: c.id, value: c.id }, `${c.nom} — ${c.annee}`)))),
+            classeId && eleves.length === 0 && h("div", { className: "mt-2 text-sm", style: { color: C.muted } }, "Aucun élève dans cette classe."),
+            eleves.length > 0 && h("div", { className: "ceres-table-wrap mt-3" },
+                h("table", { className: "w-full text-sm" },
+                    h("thead", null, h("tr", { style: { color: C.muted, fontSize: 11, textTransform: "uppercase" } },
+                        h("th", { className: "pb-1 text-left" }, "Élève"),
+                        h("th", { className: "pb-1 text-right" }, "Reste dû actuel"),
+                        h("th", { className: "pb-1 text-right" }, "Déjà versé avant CERES (F)"))),
+                    h("tbody", null, eleves.map((e) => {
+                        const d = computeDossier(e, data);
+                        return h("tr", { key: e.id, style: { borderTop: `1px solid ${C.border}` } },
+                            h("td", { className: "py-1.5" }, `${e.nom} ${e.prenom}`, h("span", { className: "text-xs", style: { color: C.muted } }, ` · ${e.matricule}`)),
+                            h("td", { className: "py-1.5 text-right" }, h(Money, { tone: d.totals.reste > 0 ? C.warn : C.muted }, d.totals.reste)),
+                            h("td", { className: "py-1.5 text-right" },
+                                h("input", { style: { ...inputStyle, width: 130, textAlign: "right" }, inputMode: "numeric", value: montants[e.id] ? Number(montants[e.id]).toLocaleString("fr-FR") : "", onChange: (ev) => saisir(e.id, ev.target.value), placeholder: "0" })));
+                    })))),
+            eleves.length > 0 && h("div", { className: "mt-4 grid gap-3 sm:grid-cols-2" },
+                h(Field, { label: "Motif de la reprise (obligatoire)", hint: "Ex. : Reprise des versements du 1er trimestre" },
+                    h("input", { style: inputStyle, value: motif, onChange: (e) => { setMotif(e.target.value); setMessage(""); } })),
+                h(Field, { label: "Justificatif (obligatoire)", hint: "Ex. : Cahier de recettes T1, pages 3 à 9" },
+                    h("input", { style: inputStyle, value: justificatif, onChange: (e) => { setJustificatif(e.target.value); setMessage(""); } }))),
+            eleves.length > 0 && h("div", { className: "mt-4 flex flex-wrap items-center gap-3" },
+                h(PrimaryButton, { onClick: previsualiser, disabled: envoi || lignes.length === 0 }, "Prévisualiser"),
+                h("span", { className: "text-sm", style: { color: C.muted } }, `${lignes.length} élève(s) · total ${fmt(total)}`))),
+        apercu && h(Card, { style: { marginBottom: 16 } },
+            h("div", { className: "mb-2", style: { fontWeight: 600, color: C.ink } }, `Prévisualisation : ${apercu.nb_eleves} élève(s) valides, total ${fmt(apercu.total)}`),
+            apercu.nb_erreurs > 0 && h("div", { className: "mb-2" }, h(Banner, { tone: "danger" }, `${apercu.nb_erreurs} ligne(s) en erreur : corrige-les avant de confirmer.`)),
+            h("div", { className: "space-y-1" }, (apercu.lignes || []).map((l, i) => h("div", { key: i, className: "rounded border p-2 text-xs", style: { borderColor: l.statut === "ok" ? C.border : C.danger } },
+                h("div", { style: { fontWeight: 600, color: C.ink } }, `${l.nom || ""} ${l.matricule ? "· " + l.matricule : ""}`, l.montant ? ` — ${fmt(l.montant)}` : ""),
+                l.statut === "ok"
+                    ? h("div", { style: { color: C.muted } }, (l.ventilation || []).map((v) => `${v.libelle} : ${fmt(v.montant)}`).join(" · "))
+                    : h("div", { style: { color: C.danger } }, l.message)))),
+            h("div", { className: "mt-3" },
+                h(PrimaryButton, { onClick: confirmer, disabled: envoi || apercu.nb_erreurs > 0 || apercu.nb_eleves === 0 }, "Confirmer la reprise"))),
+        lots.length > 0 && h("div", { className: "mt-6" },
+            h(SectionTitle, { sub: "Un lot ne peut être annulé en bloc que si aucun encaissement n'a eu lieu depuis sur les tranches concernées ; sinon, corrige élève par élève depuis son dossier." }, "Lots de reprise"),
+            h("div", { className: "space-y-2" }, lots.map((lot) => h(Card, { key: lot.id },
+                h("div", { className: "flex items-start justify-between gap-2" },
+                    h("div", null,
+                        h("div", { style: { fontWeight: 600, color: C.ink } }, `${lot.type === "Correction" ? "Correction" : "Reprise"} — ${lot.nbEleves} élève(s) — ${fmt(lot.total)}`),
+                        h("div", { className: "text-xs", style: { color: C.muted } }, `${lot.auteurNom} · ${formatDateFR(lot.creeLe)}`),
+                        h("div", { className: "text-xs", style: { color: C.muted } }, `Motif : ${lot.motif} · Justificatif : ${lot.justificatif}`),
+                        lot.annule && h("div", { className: "text-xs", style: { color: C.danger } }, `Annulé par ${lot.annuleParNom} le ${formatDateFR(lot.annuleLe)} — ${lot.motifAnnulation || ""}`)),
+                    !lot.annule && lot.type !== "Correction" && h(GhostButton, { onClick: () => { setLotAAnnuler(lot.id); setMotifAnnulation(""); }, tone: C.danger }, "Annuler ce lot")),
+                lotAAnnuler === lot.id && h("div", { className: "mt-3 flex flex-wrap items-end gap-2" },
+                    h("div", { style: { flex: 1, minWidth: 220 } }, h(Field, { label: "Motif de l'annulation" }, h("input", { style: inputStyle, value: motifAnnulation, onChange: (e) => setMotifAnnulation(e.target.value) }))),
+                    h(PrimaryButton, { onClick: annulerLot, disabled: motifAnnulation.trim().length < 5 }, "Confirmer l'annulation"),
+                    h(GhostButton, { onClick: () => setLotAAnnuler(null) }, "Renoncer")))))));
+}
+// Ligne « Versé avant CERES (reprise) » dans le dossier d'un élève + correction (Direction).
+function RepriseDossier({ eleve, data, moi, rafraichirDonnees }) {
+    const h = React.createElement;
+    const [ouvert, setOuvert] = useState(false);
+    const [nouveau, setNouveau] = useState("");
+    const [motif, setMotif] = useState("");
+    const [erreur, setErreur] = useState("");
+    const [envoi, setEnvoi] = useState(false);
+    const lignes = (data.reprises || []).filter((r) => r.eleveId === eleve.id);
+    const total = lignes.reduce((s, r) => s + r.montant, 0);
+    if (total <= 0) return null;
+    const fmt = (n) => `${Number(n || 0).toLocaleString("fr-FR")} F`;
+    const lot = (data.lotsReprise || []).find((l) => l.id === (lignes[0] && lignes[0].lotId));
+    const corriger = async () => {
+        setErreur(""); setEnvoi(true);
+        try {
+            await appelerRpc("corriger_reprise_eleve", { p_eleve_id: eleve.id, p_nouveau_total: Number(String(nouveau).replace(/\D/g, "")) || 0, p_motif: motif, p_utilisateur_id: moi && moi.id });
+            await rafraichirDonnees();
+            setOuvert(false); setNouveau(""); setMotif("");
+        } catch (e) { setErreur(String((e && e.message) || e)); }
+        finally { setEnvoi(false); }
+    };
+    return h("div", { className: "mb-4 rounded border p-3 text-sm", style: { borderColor: C.border, background: C.warnBg } },
+        h("div", { style: { fontWeight: 600, color: C.ink } }, "Versé avant CERES (reprise) : ", h(Money, { tone: C.success }, total)),
+        h("div", { className: "text-xs", style: { color: C.muted } },
+            lignes.map((r) => { const t = (eleve.grilleSnapshot || []).find((x) => x.echeanceId === r.echeanceId); return `${t ? t.libelle : "Tranche"} : ${fmt(r.montant)}`; }).join(" · "),
+            lot ? ` — reprise du ${formatDateFR(lot.creeLe)} (${lot.motif})` : ""),
+        h("div", { className: "text-xs", style: { color: C.muted } }, "Ce montant n'est pas un encaissement CERES : il n'apparaît ni en caisse, ni en clôture, ni en reçus."),
+        moi && moi.role === "Direction" && !ouvert && h("div", { className: "mt-2" }, h(GhostButton, { onClick: () => setOuvert(true) }, "Corriger la reprise")),
+        ouvert && h("div", { className: "mt-2 grid gap-2 sm:grid-cols-2" },
+            h(Field, { label: "Nouveau total repris (F, 0 = retirer)" }, h("input", { style: inputStyle, inputMode: "numeric", value: nouveau, onChange: (e) => setNouveau(e.target.value.replace(/\D/g, "")) })),
+            h(Field, { label: "Motif de la correction" }, h("input", { style: inputStyle, value: motif, onChange: (e) => setMotif(e.target.value) })),
+            h("div", { className: "flex gap-2" },
+                h(PrimaryButton, { onClick: corriger, disabled: envoi || nouveau === "" || motif.trim().length < 5 }, "Enregistrer la correction"),
+                h(GhostButton, { onClick: () => setOuvert(false) }, "Renoncer"))),
+        erreur && h("div", { className: "mt-2" }, h(Banner, { tone: "danger" }, erreur)));
+}
 function PassageAnnuelTab({ data, moi, rafraichirDonnees }) {
     const annees = [...new Set(data.classes.map((c) => c.annee).filter(Boolean))].sort();
     const [anneeSource, setAnneeSource] = useState(annees[annees.length - 1] || "");
@@ -8236,18 +8397,20 @@ function computeDossierArrete(eleve, data, dateFin) {
         const paiementsTranche = data.paiements.filter((p) => p.echeanceId === t.echeanceId && dateSeule(p.date) <= dateFin);
         const paye = paiementsTranche.reduce((s, p) => s + p.montant, 0);
         const corrections = data.corrections.filter((c) => c.statut === "approuvee" && dateSeule(c.date) <= dateFin && paiementsTranche.some((p) => p.id === c.paiementId));
-        const payeNet = paye + corrections.reduce((s, c) => s + c.montant, 0);
+        const repris = (data.reprises || []).filter((r) => r.echeanceId === t.echeanceId).reduce((s, r) => s + r.montant, 0);
+        const payeNet = paye + corrections.reduce((s, c) => s + c.montant, 0) + repris;
         const net = Math.max(0, t.montantBrut - avantage);
         const reste = Math.max(0, net - payeNet);
         const enRetard = reste > 0 && t.dateEcheance && t.dateEcheance < dateFin;
-        return { ...t, avantage, net, paye: payeNet, reste, statut: reste <= 0 ? "Réglée" : enRetard ? (payeNet > 0 ? "Partielle — en retard" : "En retard") : payeNet > 0 ? "Partielle" : "Non réglée" };
+        return { ...t, avantage, net, paye: payeNet, repris, reste, statut: reste <= 0 ? "Réglée" : enRetard ? (payeNet > 0 ? "Partielle — en retard" : "En retard") : payeNet > 0 ? "Partielle" : "Non réglée" };
     });
     const totals = tranches.reduce((acc, t) => ({
         net: acc.net + t.net,
         paye: acc.paye + t.paye,
+        repris: acc.repris + t.repris,
         reste: acc.reste + t.reste,
         retard: acc.retard + (t.statut.includes("retard") ? t.reste : 0),
-    }), { net: 0, paye: 0, reste: 0, retard: 0 });
+    }), { net: 0, paye: 0, repris: 0, reste: 0, retard: 0 });
     return { tranches, totals };
 }
 function listeImpayesArretee(data, dateFin) {
@@ -8353,10 +8516,11 @@ function Dashboard({ data, onOuvrirDossier, peutRecouvrer, role, nomEtablissemen
         return {
             net: acc.net + d.totals.net,
             payeCumule: acc.payeCumule + d.totals.paye,
+            repris: acc.repris + d.totals.repris,
             reste: acc.reste + d.totals.reste,
             retard: acc.retard + d.totals.retard,
         };
-    }, { net: 0, payeCumule: 0, reste: 0, retard: 0 });
+    }, { net: 0, payeCumule: 0, repris: 0, reste: 0, retard: 0 });
     const paiementsPeriode = data.paiements.filter((p) => dansIntervalle(p.date, debut, fin));
     const idsPaiementsPeriode = new Set(paiementsPeriode.map((p) => p.id));
     const encaissePeriode = paiementsPeriode.reduce((s, p) => s + p.montant, 0)
@@ -8368,6 +8532,7 @@ function Dashboard({ data, onOuvrirDossier, peutRecouvrer, role, nomEtablissemen
         { label: "Encaissé", value: encaissePeriode, isMoney: true, tone: C.success },
         { label: "Reste à recouvrer", value: totals.reste, isMoney: true, tone: C.warn },
         { label: "Dont en retard", value: totals.retard, isMoney: true, tone: C.danger },
+        ...(totals.repris > 0 ? [{ label: "Dont repris avant CERES (hors caisse)", value: totals.repris, isMoney: true, tone: C.muted }] : []),
     ];
     // Pilotage du recouvrement (chapitre 11 du manuel) — construit sur les mêmes données, sans rien recompter en double.
     const impayesArretes = listeImpayesArretee(data, fin);
@@ -8673,6 +8838,7 @@ const TABS = [
     { id: "classes", label: "Classes & grilles", icon: GraduationCap },
     { id: "eleves", label: "Élèves", icon: Users },
     { id: "import", label: "Import", icon: Plus },
+    { id: "reprise", label: "Reprise de soldes", icon: Wallet },
     { id: "passage-annuel", label: "Passage annuel", icon: History },
     { id: "encaissement", label: "Encaissement", icon: Wallet },
     { id: "recus", label: "Reçus", icon: Receipt },
@@ -8698,7 +8864,7 @@ const ROLES = [
     "Contrôle (lecture seule)",
 ];
 const ACCES_ONGLETS = {
-    "Direction": ["accueil", "bilan-jour", "classes", "eleves", "import", "passage-annuel", "encaissement", "recus", "corrections", "recouvrement", "rapprochement", "cloture", "ecarts-caisse", "utilisateurs", "etablissement"],
+    "Direction": ["accueil", "bilan-jour", "classes", "eleves", "import", "reprise", "passage-annuel", "encaissement", "recus", "corrections", "recouvrement", "rapprochement", "cloture", "ecarts-caisse", "utilisateurs", "etablissement"],
     "Administration établissement": ["accueil", "classes", "eleves"],
     "Comptabilité": ["accueil", "bilan-jour", "eleves", "encaissement", "recus", "corrections", "rapprochement", "cloture", "ecarts-caisse"],
     "Chef de caisse": ["accueil", "eleves", "encaissement", "recus", "cloture", "ecarts-caisse"],
@@ -10244,6 +10410,7 @@ function CeresNoyauFinancier() {
             activeTab === "classes" && React.createElement(ClassesTab, { data: data, setData: setData, role: role, moi: profil, rafraichirDonnees: rafraichirDonnees }),
             activeTab === "eleves" && React.createElement(ElevesTab, { data: data, setData: setData, moi: profil, rafraichirDonnees: rafraichirDonnees }),
             activeTab === "import" && React.createElement(ImportTab, { data: data, moi: profil, rafraichirDonnees: rafraichirDonnees }),
+            activeTab === "reprise" && React.createElement(RepriseSoldesTab, { data: data, moi: profil, rafraichirDonnees: rafraichirDonnees }),
             activeTab === "passage-annuel" && React.createElement(PassageAnnuelTab, { data: data, moi: profil, rafraichirDonnees: rafraichirDonnees }),
             activeTab === "encaissement" && (React.createElement(EncaissementTab, { data: data, moi: profil, role: role, blocageCaisse: blocageCaisse, cloturesVerrouillees: cloturesVerrouillees, rafraichirDonnees: rafraichirDonnees, etablissement: etablissementActuel, modeDemo: (profil && profil.modeDemo) === true })),
             activeTab === "recus" && React.createElement(RecusTab, { data: data, moi: profil, rafraichirDonnees: rafraichirDonnees, etablissement: etablissementActuel, modeDemo: (profil && profil.modeDemo) === true }),
