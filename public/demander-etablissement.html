@@ -31,6 +31,11 @@
   .alerte.ok { background: #e9f1ea; color: var(--ok); }
   .alerte.err { background: #f6e5e3; color: var(--danger); }
   .piege { position: absolute; left: -9999px; height: 0; overflow: hidden; }
+  .tarif { background: #faf7f0; border: 1px solid var(--gold); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; line-height: 1.5; }
+  .tarif .nom { font-weight: 700; color: var(--navy); }
+  .tarif .mois { font-size: 20px; font-weight: 700; color: var(--navy); }
+  .tarif .detail { font-size: 14px; }
+  .tarif .desc { font-size: 13px; color: var(--muted); margin-top: 4px; }
   footer { text-align: center; font-size: 12px; color: var(--muted); margin-top: 18px; }
 </style>
 </head>
@@ -76,16 +81,11 @@
         <div class="hint">C'est l'adresse qui recevra les liens de connexion de la Direction.</div>
       </div>
     </div>
+    <div id="zoneTarif"></div>
     <div class="row">
-      <div class="group">
+      <div class="group" id="groupeFormule" style="display:none">
         <label for="formule_souhaitee">Formule souhaitée <span class="req">*</span></label>
-        <select id="formule_souhaitee" required>
-          <option value="">— Choisir —</option>
-          <option>Pilote annuel</option>
-          <option>Essentiel annuel</option>
-          <option>Pro annuel</option>
-          <option>Je ne sais pas encore</option>
-        </select>
+        <select id="formule_souhaitee"></select>
       </div>
       <div class="group">
         <label for="effectif">Nombre d'élèves (approximatif)</label>
@@ -107,16 +107,49 @@
 <script>
   var SUPABASE_URL = "https://nqxxrsfhbfgkpqzsxhwm.supabase.co";
   var SUPABASE_KEY = "sb_publishable_G-fGCiNLQ2ShsPOZM38ZvQ_pceozHdV";
+  var formules = [];
+  var FORMULE_PAR_DEFAUT = "Pilote annuel";
+  function nombre(n) { return Math.round(n).toLocaleString("fr-FR").replace(/\u202f/g, "\u00a0"); }
+  function afficherTarif() {
+    var zone = document.getElementById("zoneTarif");
+    var sel = document.getElementById("formule_souhaitee");
+    var f = formules.filter(function (x) { return x.nom === sel.value; })[0] || formules[0];
+    if (!f) { zone.innerHTML = ""; return; }
+    var annuelHT = f.prix_mensuel_ht * 12;
+    var annuelTTC = annuelHT * (1 + Number(f.tva_pct) / 100);
+    var tva = String(Number(f.tva_pct)).replace(".", ",");
+    zone.innerHTML = '<div class="tarif"><div class="nom"></div><div class="mois"></div><div class="detail"></div><div class="desc"></div></div>';
+    zone.querySelector(".nom").textContent = f.nom;
+    zone.querySelector(".mois").textContent = nombre(f.prix_mensuel_ht) + " FCFA HT par mois";
+    zone.querySelector(".detail").textContent = "Paiement annuel, soit " + nombre(annuelTTC) + " FCFA TTC (TVA : " + tva + " %).";
+    zone.querySelector(".desc").textContent = f.description || "";
+  }
+  async function chargerFormules() {
+    var sel = document.getElementById("formule_souhaitee");
+    try {
+      var rep = await fetch(SUPABASE_URL + "/rest/v1/formules_abonnement?actif=eq.true&select=nom,prix_mensuel_ht,tva_pct,description&order=ordre.asc", {
+        headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY }
+      });
+      if (rep.ok) formules = await rep.json();
+    } catch (e) {}
+    sel.innerHTML = "";
+    if (!formules.length) { sel.innerHTML = '<option>' + FORMULE_PAR_DEFAUT + '</option>'; return; }
+    formules.forEach(function (f) { var o = document.createElement("option"); o.value = f.nom; o.textContent = f.nom; sel.appendChild(o); });
+    if (formules.length > 1) document.getElementById("groupeFormule").style.display = "block";
+    sel.addEventListener("change", afficherTarif);
+    afficherTarif();
+  }
   var form = document.getElementById("formulaire");
   var alerte = document.getElementById("alerte");
   var bouton = document.getElementById("envoyer");
   function montrer(texte, type) { alerte.textContent = texte; alerte.className = "alerte visible " + type; alerte.scrollIntoView({ behavior: "smooth", block: "center" }); }
   function val(id) { return document.getElementById(id).value.trim(); }
+  chargerFormules();
   form.addEventListener("submit", async function (ev) {
     ev.preventDefault();
     alerte.className = "alerte";
     if (val("site_web")) { montrer("Votre demande a bien été envoyée. Merci !", "ok"); form.reset(); return; }
-    var requis = ["nom_etablissement", "ville", "province", "nom_directeur", "telephone", "email", "formule_souhaitee"];
+    var requis = ["nom_etablissement", "ville", "province", "nom_directeur", "telephone", "email"];
     for (var i = 0; i < requis.length; i++) {
       if (!val(requis[i])) { montrer("Merci de remplir tous les champs marqués d'une étoile (*).", "err"); document.getElementById(requis[i]).focus(); return; }
     }
@@ -124,7 +157,7 @@
     var corps = {
       nom_etablissement: val("nom_etablissement"), ville: val("ville"), province: val("province"),
       nom_directeur: val("nom_directeur"), telephone: val("telephone"), email: val("email"),
-      formule_souhaitee: val("formule_souhaitee"), message: val("message") || null,
+      formule_souhaitee: val("formule_souhaitee") || FORMULE_PAR_DEFAUT, message: val("message") || null,
       effectif: val("effectif") ? parseInt(val("effectif"), 10) : null
     };
     bouton.disabled = true; bouton.textContent = "Envoi en cours…";
