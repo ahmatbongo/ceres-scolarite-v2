@@ -8800,6 +8800,85 @@ function DemandesRecuesSection() {
         }))));
 }
 
+/* ------------------------------------------------------------------ */
+/* Formules d'abonnement : tarifs modifiables, affichés au formulaire */
+/* ------------------------------------------------------------------ */
+function FormulesAbonnementSection() {
+    const [formules, setFormules] = useState(null);
+    const [brouillons, setBrouillons] = useState({});
+    const [erreur, setErreur] = useState("");
+    const [message, setMessage] = useState("");
+    const [enCours, setEnCours] = useState(null);
+    const charger = useCallback(async () => {
+        setErreur("");
+        try {
+            const r = await sb("formules_abonnement?select=*&order=ordre.asc");
+            setFormules(r);
+            setBrouillons(Object.fromEntries(r.map((f) => [f.id, { prix: String(f.prix_mensuel_ht), tva: String(f.tva_pct), description: f.description || "", actif: !!f.actif }])));
+        }
+        catch (e) {
+            setErreur(String((e === null || e === void 0 ? void 0 : e.message) || e));
+        }
+    }, []);
+    useEffect(() => { charger(); }, [charger]);
+    const modifier = (id, champ, valeur) => setBrouillons((b) => ({ ...b, [id]: { ...b[id], [champ]: valeur } }));
+    const enregistrer = async (f) => {
+        const b = brouillons[f.id];
+        const prix = parseInt(b.prix, 10);
+        const tva = parseFloat(String(b.tva).replace(",", "."));
+        setMessage("");
+        if (!(prix > 0)) {
+            setErreur("Le prix mensuel doit \u00EAtre un nombre sup\u00E9rieur \u00E0 0.");
+            return;
+        }
+        if (!(tva >= 0 && tva <= 100)) {
+            setErreur("La TVA doit \u00EAtre comprise entre 0 et 100.");
+            return;
+        }
+        setEnCours(f.id);
+        setErreur("");
+        try {
+            await sb(`formules_abonnement?id=eq.${f.id}`, { method: "PATCH", body: JSON.stringify({ prix_mensuel_ht: prix, tva_pct: tva, description: b.description.trim() || null, actif: b.actif, mis_a_jour_le: new Date().toISOString() }) });
+            await charger();
+            setMessage(`Formule \u00AB ${f.nom} \u00BB enregistr\u00E9e.`);
+        }
+        catch (e) {
+            setErreur(String((e === null || e === void 0 ? void 0 : e.message) || e));
+        }
+        finally {
+            setEnCours(null);
+        }
+    };
+    return (React.createElement("div", { className: "mt-8 border-t pt-6", style: { borderColor: C.border } },
+        React.createElement(SectionTitle, { sub: "Les formules coch\u00E9es \u00AB propos\u00E9e \u00BB sont affich\u00E9es avec leur prix dans le formulaire public. Le prix annuel et le montant TTC sont calcul\u00E9s automatiquement." }, "Formules d'abonnement"),
+        erreur && React.createElement("div", { className: "mb-3" }, React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)),
+        message && React.createElement("div", { className: "mb-3" }, React.createElement(Banner, { tone: "success", icon: React.createElement(CheckCircle2, { size: 16 }) }, message)),
+        formules === null && !erreur && React.createElement(Banner, { tone: "info" }, "Chargement..."),
+        React.createElement("div", { className: "space-y-2" }, (formules || []).map((f) => {
+            const b = brouillons[f.id] || { prix: "", tva: "", description: "", actif: false };
+            const prix = parseInt(b.prix, 10) || 0;
+            const tva = parseFloat(String(b.tva).replace(",", ".")) || 0;
+            const annuelHt = prix * 12;
+            const annuelTtc = Math.round(annuelHt * (1 + tva / 100));
+            const inchange = b.prix === String(f.prix_mensuel_ht) && b.tva === String(f.tva_pct) && b.description === (f.description || "") && b.actif === !!f.actif;
+            return (React.createElement(Card, { key: f.id },
+                React.createElement("div", { className: "flex flex-wrap items-center justify-between gap-2" },
+                    React.createElement("div", { style: { fontWeight: 600, color: C.ink } }, f.nom),
+                    React.createElement("label", { className: "flex items-center gap-2 text-sm" },
+                        React.createElement("input", { type: "checkbox", checked: b.actif, onChange: (e) => modifier(f.id, "actif", e.target.checked) }),
+                        "Propos\u00E9e dans le formulaire")),
+                React.createElement("div", { className: "mt-2 grid gap-2 sm:grid-cols-3" },
+                    React.createElement(Field, { label: "Prix mensuel HT (FCFA)" },
+                        React.createElement("input", { style: inputStyle, type: "number", onWheel: bloquerMolette, min: 1, value: b.prix, onChange: (e) => modifier(f.id, "prix", e.target.value) })),
+                    React.createElement(Field, { label: "TVA (%)" },
+                        React.createElement("input", { style: inputStyle, value: b.tva, onChange: (e) => modifier(f.id, "tva", e.target.value) })),
+                    React.createElement("div", { className: "text-sm", style: { color: C.muted, alignSelf: "end", paddingBottom: 8 } },
+                        `Annuel : ${formatFCFA(annuelHt)} HT, soit `, React.createElement("strong", { style: { color: C.ink } }, `${formatFCFA(annuelTtc)} TTC`))),
+                React.createElement(Field, { label: "Description courte (affich\u00E9e au visiteur)" },
+                    React.createElement("textarea", { style: { ...inputStyle, minHeight: 44 }, maxLength: 500, value: b.description, onChange: (e) => modifier(f.id, "description", e.target.value) })),
+                React.createElement(PrimaryButton, { onClick: () => enregistrer(f), disabled: enCours === f.id || inchange, icon: React.createElement(CheckCircle2, { size: 16 }) }, "Enregistrer")));
+        }))));
+}
 function AdministrationCeresTab({ moi }) {
     const [etablissements, setEtablissements] = useState(null);
     const [chargement, setChargement] = useState(true);
@@ -9018,6 +9097,7 @@ function AdministrationCeresTab({ moi }) {
                         React.createElement(ChampDateFR, { style: inputStyle, value: e.dateEcheance || "", onChange: (v) => setEtablissements((liste) => liste.map((x) => (x.id === e.id ? { ...x, dateEcheance: v.target.value } : x))) })),
                     React.createElement(PrimaryButton, { onClick: () => enregistrerAbonnement(e), icon: React.createElement(CheckCircle2, { size: 16 }) }, "Enregistrer")))));
         })),
+        React.createElement(FormulesAbonnementSection, null),
         React.createElement("div", { className: "mt-8 border-t pt-6", style: { borderColor: C.border } },
             React.createElement(ContinuiteAdminSection, { moi: moi }))));
 }
