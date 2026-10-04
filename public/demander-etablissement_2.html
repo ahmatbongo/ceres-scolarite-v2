@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Demander un abonnement — CERES Scolarité</title>
+<style>
+  :root { --navy:#16304a; --gold:#b8863f; --cream:#faf7f0; --ink:#1f2d38; --muted:#6b7580; --border:#e5e0d3; --danger:#a5453d; --ok:#4f7a5c; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Segoe UI", Tahoma, Arial, sans-serif; background: var(--cream); color: var(--ink); min-height: 100vh; }
+  header { background: var(--navy); color: #fff; padding: 18px 20px; }
+  header h1 { font-size: 20px; font-family: Georgia, serif; }
+  header p { font-size: 12px; letter-spacing: .08em; color: #d9b479; text-transform: uppercase; margin-top: 2px; }
+  main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
+  .intro { margin-bottom: 18px; line-height: 1.5; }
+  .intro a { color: var(--navy); }
+  .card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 22px; }
+  .row { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
+  @media (max-width: 560px) { .row { grid-template-columns: 1fr; } }
+  .group { margin-bottom: 14px; }
+  label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 5px; }
+  .req { color: var(--danger); }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  input, select, textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font: inherit; background: #fff; }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--gold); outline-offset: 0; }
+  textarea { min-height: 90px; resize: vertical; }
+  button { background: var(--navy); color: #fff; border: 0; border-radius: 8px; padding: 12px 18px; font: inherit; font-weight: 600; cursor: pointer; width: 100%; margin-top: 6px; }
+  button:disabled { opacity: .6; cursor: not-allowed; }
+  .alerte { display: none; margin-bottom: 14px; padding: 12px 14px; border-radius: 8px; font-size: 14px; line-height: 1.45; }
+  .alerte.visible { display: block; }
+  .alerte.ok { background: #e9f1ea; color: var(--ok); }
+  .alerte.err { background: #f6e5e3; color: var(--danger); }
+  .piege { position: absolute; left: -9999px; height: 0; overflow: hidden; }
+  footer { text-align: center; font-size: 12px; color: var(--muted); margin-top: 18px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>CERES Scolarité</h1>
+  <p>Gestion de la scolarité</p>
+</header>
+<main>
+  <div class="intro">
+    <h2 style="font-size:22px;margin-bottom:6px;font-family:Georgia,serif;">Demander un abonnement pour mon école</h2>
+    <p>Remplissez ce formulaire : l'équipe CERES vous recontacte pour ouvrir votre établissement. Vous pouvez d'abord
+    <a href="/">essayer la démonstration</a>, sans compte, avec des données fictives.</p>
+  </div>
+  <form class="card" id="formulaire" novalidate>
+    <div id="alerte" class="alerte" role="status"></div>
+    <div class="group">
+      <label for="nom_etablissement">Nom de l'établissement <span class="req">*</span></label>
+      <input id="nom_etablissement" maxlength="150" required autocomplete="organization">
+    </div>
+    <div class="row">
+      <div class="group">
+        <label for="ville">Ville <span class="req">*</span></label>
+        <input id="ville" maxlength="100" required placeholder="ex : N'Djaména">
+      </div>
+      <div class="group">
+        <label for="province">Région <span class="req">*</span></label>
+        <input id="province" maxlength="100" required placeholder="ex : Ville de N'Djaména">
+      </div>
+    </div>
+    <div class="group">
+      <label for="nom_directeur">Nom du Directeur / de la Directrice <span class="req">*</span></label>
+      <input id="nom_directeur" maxlength="150" required autocomplete="name">
+    </div>
+    <div class="row">
+      <div class="group">
+        <label for="telephone">Téléphone (WhatsApp si possible) <span class="req">*</span></label>
+        <input id="telephone" type="tel" maxlength="40" required placeholder="ex : +235 66 12 34 56" autocomplete="tel">
+      </div>
+      <div class="group">
+        <label for="email">Adresse e-mail <span class="req">*</span></label>
+        <input id="email" type="email" maxlength="150" required placeholder="ex : direction@monecole.td" autocomplete="email">
+        <div class="hint">C'est l'adresse qui recevra les liens de connexion de la Direction.</div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="group">
+        <label for="formule_souhaitee">Formule souhaitée <span class="req">*</span></label>
+        <select id="formule_souhaitee" required>
+          <option value="">— Choisir —</option>
+          <option>Pilote annuel</option>
+          <option>Essentiel annuel</option>
+          <option>Pro annuel</option>
+          <option>Je ne sais pas encore</option>
+        </select>
+      </div>
+      <div class="group">
+        <label for="effectif">Nombre d'élèves (approximatif)</label>
+        <input id="effectif" type="number" min="1" max="20000" inputmode="numeric" placeholder="ex : 350">
+      </div>
+    </div>
+    <div class="group">
+      <label for="message">Message (facultatif)</label>
+      <textarea id="message" maxlength="2000" placeholder="Une question, un besoin particulier…"></textarea>
+    </div>
+    <div class="piege" aria-hidden="true">
+      <label for="site_web">Ne pas remplir</label>
+      <input id="site_web" tabindex="-1" autocomplete="off">
+    </div>
+    <button type="submit" id="envoyer">Envoyer ma demande</button>
+  </form>
+  <footer>Vos informations ne servent qu'à vous recontacter.</footer>
+</main>
+<script>
+  var SUPABASE_URL = "https://nqxxrsfhbfgkpqzsxhwm.supabase.co";
+  var SUPABASE_KEY = "sb_publishable_G-fGCiNLQ2ShsPOZM38ZvQ_pceozHdV";
+  var form = document.getElementById("formulaire");
+  var alerte = document.getElementById("alerte");
+  var bouton = document.getElementById("envoyer");
+  function montrer(texte, type) { alerte.textContent = texte; alerte.className = "alerte visible " + type; alerte.scrollIntoView({ behavior: "smooth", block: "center" }); }
+  function val(id) { return document.getElementById(id).value.trim(); }
+  form.addEventListener("submit", async function (ev) {
+    ev.preventDefault();
+    alerte.className = "alerte";
+    if (val("site_web")) { montrer("Votre demande a bien été envoyée. Merci !", "ok"); form.reset(); return; }
+    var requis = ["nom_etablissement", "ville", "province", "nom_directeur", "telephone", "email", "formule_souhaitee"];
+    for (var i = 0; i < requis.length; i++) {
+      if (!val(requis[i])) { montrer("Merci de remplir tous les champs marqués d'une étoile (*).", "err"); document.getElementById(requis[i]).focus(); return; }
+    }
+    if (!/^\S+@\S+\.\S+$/.test(val("email"))) { montrer("L'adresse e-mail ne semble pas correcte.", "err"); document.getElementById("email").focus(); return; }
+    var corps = {
+      nom_etablissement: val("nom_etablissement"), ville: val("ville"), province: val("province"),
+      nom_directeur: val("nom_directeur"), telephone: val("telephone"), email: val("email"),
+      formule_souhaitee: val("formule_souhaitee"), message: val("message") || null,
+      effectif: val("effectif") ? parseInt(val("effectif"), 10) : null
+    };
+    bouton.disabled = true; bouton.textContent = "Envoi en cours…";
+    try {
+      var rep = await fetch(SUPABASE_URL + "/rest/v1/demandes_etablissements", {
+        method: "POST",
+        headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY, "Content-Type": "application/json", Prefer: "return=minimal" },
+        body: JSON.stringify(corps)
+      });
+      if (rep.ok) {
+        montrer("Merci ! Votre demande a bien été envoyée. L'équipe CERES vous contactera très bientôt.", "ok");
+        form.reset();
+      } else {
+        var txt = ""; try { var j = await rep.json(); txt = (j && j.message) || ""; } catch (e) {}
+        if (/Trop de demandes|déjà été envoyée/.test(txt)) montrer(txt, "err");
+        else montrer("Votre demande n'a pas pu être enregistrée. Vérifiez les champs et réessayez, ou contactez CERES directement.", "err");
+      }
+    } catch (e) {
+      montrer("Connexion impossible. Vérifiez votre accès Internet et réessayez.", "err");
+    }
+    bouton.disabled = false; bouton.textContent = "Envoyer ma demande";
+  });
+</script>
+</body>
+</html>
