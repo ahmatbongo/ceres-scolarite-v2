@@ -85,6 +85,7 @@ const FONT_IMPORT = `
 .ceres-tabstrip::-webkit-scrollbar { height: 4px; }
 .ceres-tabstrip::-webkit-scrollbar-thumb { background: #cbbf9e; border-radius: 4px; }
 
+html, body, #root { max-width: 100%; overflow-x: hidden; }
 .grid > * { min-width: 0; }
 .ceres-table-wrap { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -2px; }
 .ceres-table-wrap table { min-width: 460px; }
@@ -4654,7 +4655,7 @@ function BordereauCaissiers({ data, moi, role }) {
                     h("table", { className: "w-full text-sm", style: { minWidth: 1050 } },
                         h("thead", null, h("tr", { style: { color: C.muted, fontSize: 11, textTransform: "uppercase" } },
                             h("th", { className: "pb-2 text-left" }, "Caissier"),
-                            h("th", { className: "pb-2 text-right" }, "Opérations"),
+                            h("th", { className: "pb-2 text-right" }, "Paiements"),
                             ...entetesMode,
                             h("th", { className: "pb-2 text-right" }, "Corrections"),
                             h("th", { className: "pb-2 text-right" }, "Remboursements"),
@@ -9382,7 +9383,7 @@ function AdministrationCeresTab({ moi }) {
         React.createElement("label", { className: "mb-3 flex items-center gap-2 text-sm", style: { color: C.muted } },
             React.createElement("input", { type: "checkbox", checked: masquerTests, onChange: (ev) => setMasquerTests(ev.target.checked) }),
             `Masquer les écoles de test et d'entraînement (${toutes.length - visibles.length} masquée${toutes.length - visibles.length > 1 ? "s" : ""})`),
-        React.createElement(SectionTitle, { sub: "Cr\u00E9er une \u00E9cole lui donne aussit\u00F4t ses propres donn\u00E9es, totalement s\u00E9par\u00E9es des autres \u2014 vous ne voyez ici que la liste et l'abonnement, jamais leur contenu financier." }, "Administration CERES \u2014 \u00E9tablissements"),
+        React.createElement(SectionTitle, { sub: "Cr\u00E9er une \u00E9cole lui donne aussit\u00F4t ses propres donn\u00E9es, totalement s\u00E9par\u00E9es des autres \u2014 vous ne voyez ici que la liste et l'abonnement, jamais leur contenu financier." }, "\u00C9coles clientes"),
         React.createElement(Card, { style: { marginBottom: 16 } },
             React.createElement("div", { className: "grid gap-3 sm:grid-cols-3" },
                 React.createElement(Field, { label: "Nom de l'\u00E9tablissement" },
