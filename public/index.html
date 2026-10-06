@@ -110,6 +110,27 @@ const SUPABASE_KEY = "sb_publishable_G-fGCiNLQ2ShsPOZM38ZvQ_pceozHdV";
 // n'est connecté, on retombe sur la clé publique seule.
 let jetonActif = null;
 let refreshActif = null;
+// Transforme une réponse d'erreur du service en phrase lisible pour l'utilisateur
+// (le détail technique reste disponible dans la console du navigateur).
+function erreurLisible(status, detail, origine) {
+    try { console.error("Erreur service", origine, status, detail); } catch (_) {}
+    let message = "";
+    try {
+        const d = JSON.parse(detail);
+        message = String(d.message || d.msg || d.error_description || "").replace(/\bP\d{1,3}(-\d+)?\s*[:\u2014\u2013-]\s*/g, "");
+    } catch (_) {}
+    if (/row-level security|permission denied/i.test(message) || status === 401 || status === 403)
+        return "Cette action n'est pas autorisée avec votre profil, ou votre session a expiré. Reconnectez-vous si le problème persiste.";
+    if (/duplicate key|unique constraint/i.test(message) || status === 409)
+        return "Cet élément existe déjà (doublon). Vérifiez les informations saisies.";
+    if (/foreign key|violates|invalid input|null value/i.test(message))
+        return "L'opération n'a pas pu être enregistrée : une information est manquante ou incorrecte.";
+    if (status >= 500)
+        return "Le service est momentanément indisponible. Réessayez dans un instant.";
+    if (message)
+        return message;
+    return "L'opération n'a pas pu être effectuée. Réessayez ; si le problème persiste, contactez CERES.";
+}
 // Pas de librairie npm ici (non disponible dans cet environnement) — on parle
 // directement à l'API REST de Supabase (PostgREST) avec fetch().
 async function sb(path, options = {}) {
@@ -121,7 +142,7 @@ async function sb(path, options = {}) {
             "Content-Type": "application/json",
             ...(options.headers || {}),
         },
-    });
+    }).catch(() => { throw new Error("Connexion impossible. Vérifiez votre connexion Internet et réessayez."); });
     let res = await tentative();
     if (res.status === 401 && refreshActif) {
         // Le jeton a expiré pendant l'utilisation (entre deux renouvellements
@@ -137,7 +158,7 @@ async function sb(path, options = {}) {
     }
     if (!res.ok) {
         const detail = await res.text().catch(() => "");
-        throw new Error(`Supabase [${path}] ${res.status} — ${detail}`);
+        throw new Error(erreurLisible(res.status, detail, path));
     }
     if (res.status === 204)
         return null;
@@ -152,7 +173,7 @@ async function stockage(path, options = {}) {
             Authorization: `Bearer ${jetonActif || SUPABASE_KEY}`,
             ...(options.headers || {}),
         },
-    });
+    }).catch(() => { throw new Error("Connexion impossible. Vérifiez votre connexion Internet et réessayez."); });
     let res = await tentative();
     if (res.status === 401 && refreshActif) {
         const renouvele = await rafraichirSession(refreshActif);
@@ -165,7 +186,7 @@ async function stockage(path, options = {}) {
     }
     if (!res.ok) {
         const detail = await res.text().catch(() => "");
-        throw new Error(`Supabase Storage ${res.status} — ${detail}`);
+        throw new Error(erreurLisible(res.status, detail, "stockage"));
     }
     const texte = await res.text();
     if (!texte)
@@ -386,8 +407,8 @@ function messageErreurCaisseP126(e) {
         return brut;
     const correspondance = brut.match(/P1-26:\s*([^"}\\n]+)/i);
     if (correspondance && correspondance[1])
-        return `P1-26 : ${correspondance[1].trim()}`;
-    return "P1-26 : la journée de caisse précédente n’est pas clôturée. Clôturez-la ou faites enregistrer une dérogation tracée avant tout nouvel encaissement ou mouvement de caisse.";
+        return correspondance[1].trim();
+    return "La journée de caisse précédente n’est pas clôturée. Clôturez-la ou faites enregistrer une dérogation tracée avant tout nouvel encaissement ou mouvement de caisse.";
 }
 // Un utilisateur peut administrer CERES centralement s'il est Administrateur
 // principal, ou Suppléant actuellement activé (planifié ou en urgence).
@@ -974,7 +995,7 @@ function ClassesTab({ data, setData, role, moi, rafraichirDonnees }) {
             }
         }
         if (dejaDefinie && !scolarite.dateEffet)
-            return setErreur("Une grille existe déjà pour cette classe : indique une date d'effet pour créer une nouvelle version. Les élèves déjà inscrits ne sont jamais affectés — seules les nouvelles inscriptions, à partir de cette date, utiliseront la nouvelle grille.");
+            return setErreur("Une grille existe déjà pour cette classe : indiquez une date d'effet pour créer une nouvelle version. Les élèves déjà inscrits ne sont jamais affectés — seules les nouvelles inscriptions, à partir de cette date, utiliseront la nouvelle grille.");
         setEnvoiScolarite(true);
         try {
             await appelerRpc("creer_version_scolarite", {
@@ -1277,7 +1298,7 @@ function FraisOptionnelsP139({ eleve, data, moi, rafraichirDonnees }) {
                 setErreur("L'opération a été enregistrée, mais le rechargement a échoué. Rechargez les données ; ne répétez pas l'opération.");
             } else {
                 setMessage(desinscrire
-                    ? "Désinscription enregistrée. Les échéances conservées par les règles du serveur restent visibles dans la grille."
+                    ? "Désinscription enregistrée. Les échéances déjà payées ou échues restent visibles dans la grille."
                     : "Souscription enregistrée. La grille d'échéances a été rechargée.");
             }
         } catch (e) {
@@ -1478,7 +1499,7 @@ function ReprisePassageP139({ initial, contexte, moi, rafraichirDonnees }) {
         erreur && React.createElement("div", { role: "alert", className: "my-2" }, React.createElement(Banner, { tone: "danger" }, erreur)),
         message && React.createElement("div", { role: "status", className: "my-2" }, React.createElement(Banner, { tone: "info" }, message)),
         lectureRequise && React.createElement(GhostButton, { onClick: recharger, disabled: occupe }, "Recharger les données"),
-        (resultat.bloquesPourSolde || 0) > 0 && !bloques.length && React.createElement(Banner, { tone: "warn" }, "Le serveur n'a pas fourni le détail des élèves bloqués. La reprise ciblée est indisponible."),
+        (resultat.bloquesPourSolde || 0) > 0 && !bloques.length && React.createElement(Banner, { tone: "warn" }, "Le détail des élèves bloqués n'est pas disponible. Rechargez la page puis réessayez."),
         bloques.map((b) => React.createElement("div", { key: b.eleve_id, className: "border-t mt-2 pt-2", style: { borderColor: C.border } },
             React.createElement("strong", null, `${b.prenom || ""} ${b.nom || ""}`.trim() || b.matricule || "Élève"), " · ", b.matricule || "", " · ", formatFCFA(b.solde),
             !accordees[b.eleve_id] && React.createElement("p", { className: "text-sm" }, b.raison === "solde_augmente" ? "Solde supérieur au montant autorisé par la dérogation." : "Aucune dérogation utilisable."),
@@ -1583,7 +1604,7 @@ function ElevesTab({ data, setData, moi, rafraichirDonnees }) {
     const appliquerException = async () => {
         setErreur("");
         if (!exceptionEcheanceId)
-            return setErreur("Choisis la tranche concernée par l'exception.");
+            return setErreur("Choisissez la tranche concernée par l'exception.");
         const montant = Number(exceptionMontant);
         if (String(exceptionMontant).trim() === "" || !Number.isFinite(montant) || montant <= 0)
             return setErreur("Le montant d'une échéance doit rester strictement supérieur à zéro. Pour annuler totalement le montant dû, utilisez une exonération ou un avantage.");
@@ -1644,9 +1665,9 @@ function ElevesTab({ data, setData, moi, rafraichirDonnees }) {
     const appliquerAvoirFn = async () => {
         setErreur("");
         if (!appliquerAvoirId)
-            return setErreur("Choisis l'avoir à appliquer.");
+            return setErreur("Choisissez l'avoir à appliquer.");
         if (!appliquerEcheanceId)
-            return setErreur("Choisis la tranche sur laquelle l'appliquer.");
+            return setErreur("Choisissez la tranche sur laquelle l'appliquer.");
         const montant = Number(appliquerMontant);
         if (!montant || montant <= 0)
             return setErreur("Le montant à appliquer doit être supérieur à 0.");
@@ -1778,7 +1799,7 @@ function ElevesTab({ data, setData, moi, rafraichirDonnees }) {
                         React.createElement(Money, { tone: d.totals.reste > 0 ? C.warn : C.success }, d.totals.reste)));
                 }))),
         React.createElement("div", null,
-            React.createElement(SectionTitle, { sub: "Frais nets, avantages, pay\u00E9 et reliquat \u2014 recalcul\u00E9s \u00E0 partir d'une source unique." }, "Dossier financier"),
+            React.createElement(SectionTitle, { sub: "Frais nets, avantages, montant pay\u00E9 et reste \u00E0 payer de l'\u00E9l\u00E8ve." }, "Dossier financier"),
             !eleveSelectionne && React.createElement(Banner, { tone: "info" }, "S\u00E9lectionnez un \u00E9l\u00E8ve dans la liste pour voir son dossier."),
             eleveSelectionne && dossier && (React.createElement(Card, null,
                 React.createElement("div", { className: "mb-3 flex items-center justify-between" },
@@ -4688,10 +4709,10 @@ function AlerteCaisseP126({ alerte, role, onOuvrirControle, onAccorderDerogation
     };
     const tone = role === "Direction" && alerte.escaladeDirection ? "danger" : alerte.derogationActive ? "info" : "warn";
     const titre = role === "Direction" && alerte.escaladeDirection
-        ? "Escalade P1-26 — journée non clôturée depuis plus de 24 heures"
+        ? "Alerte — journée non clôturée depuis plus de 24 heures"
         : alerte.derogationActive
-            ? "P1-26 — dérogation tracée active pour aujourd’hui"
-            : "P1-26 — journée de caisse précédente non clôturée";
+            ? "Dérogation tracée active pour aujourd’hui"
+            : "Journée de caisse précédente non clôturée";
     const etat = alerte.derogationActive
         ? h("div", { className: "mt-2 rounded p-2 text-xs", style: { background: "rgba(255,255,255,0.7)" } },
             h("strong", null, "Dérogation tracée active pour aujourd’hui — "),
@@ -4710,7 +4731,7 @@ function AlerteCaisseP126({ alerte, role, onOuvrirControle, onAccorderDerogation
         : null;
     const form = !alerte.derogationActive && formulaireOuvert && peutDeroger
         ? h("div", { className: "mt-3 rounded-lg p-3", style: { background: "rgba(255,255,255,0.75)", border: `1px solid ${C.border}` } },
-            h("div", { className: "mb-2 text-sm font-semibold", style: { color: C.ink } }, "Dérogation P1-26 — autorisation pour aujourd’hui"),
+            h("div", { className: "mb-2 text-sm font-semibold", style: { color: C.ink } }, "Dérogation — autorisation pour aujourd’hui"),
             h("div", { className: "mb-2 text-xs", style: { color: C.muted } },
                 "Journée concernée : ", h("strong", null, formatDateFR(alerte.dateNonCloturee)),
                 " · auteur et horodatage seront enregistrés automatiquement."),
@@ -4730,7 +4751,7 @@ function AlerteCaisseP126({ alerte, role, onOuvrirControle, onAccorderDerogation
     const succes = alerte.derogationActive
         ? h("div", { className: "mt-3" },
             h(Banner, { tone: "success", icon: h(CheckCircle2, { size: 15 }) },
-                "La dérogation est enregistrée et le blocage P1-26 est levé pour les opérations d’aujourd’hui."))
+                "La dérogation est enregistrée et le blocage est levé pour les opérations d’aujourd’hui."))
         : null;
     const contenu = h("div", { style: { width: "100%" } },
         h("div", { style: { fontWeight: 700, marginBottom: 5 } }, titre),
@@ -4806,7 +4827,7 @@ function EncaissementTab({ data, moi, role, blocageCaisse, cloturesVerrouillees,
     const encaisserTranche = () => {
         setErreur("");
         if (blocageCaisse)
-            return setErreur("P1-26 : la journée de caisse précédente doit être clôturée ou couverte par une dérogation tracée.");
+            return setErreur("La journée de caisse précédente doit être clôturée ou couverte par une dérogation tracée.");
         if (verrouSoumission.current)
             return; // verrou synchrone : ferme la fenêtre qu'un état asynchrone laisserait ouverte
         if (jourVerrouille)
@@ -4843,7 +4864,7 @@ function EncaissementTab({ data, moi, role, blocageCaisse, cloturesVerrouillees,
     const encaisserTout = () => {
         setErreur("");
         if (blocageCaisse)
-            return setErreur("P1-26 : la journée de caisse précédente doit être clôturée ou couverte par une dérogation tracée.");
+            return setErreur("La journée de caisse précédente doit être clôturée ou couverte par une dérogation tracée.");
         if (verrouSoumission.current)
             return;
         if (jourVerrouille)
@@ -4859,11 +4880,11 @@ function EncaissementTab({ data, moi, role, blocageCaisse, cloturesVerrouillees,
     };
     return (React.createElement("div", { className: "grid gap-4 lg:grid-cols-2" },
         React.createElement("div", null,
-            React.createElement(SectionTitle, { sub: "Chaque paiement est rattach\u00E9 \u00E0 une \u00E9ch\u00E9ance pr\u00E9cise \u2014 jamais choisie au hasard." }, "Encaissement"),
+            React.createElement(SectionTitle, { sub: "Chaque paiement est imput\u00E9 sur une \u00E9ch\u00E9ance pr\u00E9cise de l'\u00E9l\u00E8ve." }, "Encaissement"),
             jourVerrouille && (React.createElement("div", { className: "mb-3" },
                 React.createElement(Banner, { tone: "warn", icon: React.createElement(Lock, { size: 16 }) }, "La caisse d'aujourd'hui est cl\u00F4tur\u00E9e. Rouvrez-la exceptionnellement depuis l'onglet Cl\u00F4ture pour enregistrer un nouvel encaissement."))),
             blocageCaisse && (React.createElement("div", { className: "mb-3" },
-                React.createElement(Banner, { tone: "danger", icon: React.createElement(Lock, { size: 16 }) }, "P1-26 : la caisse du jour est bloquée tant que la journée précédente n’est ni clôturée ni couverte par une dérogation tracée."))),
+                React.createElement(Banner, { tone: "danger", icon: React.createElement(Lock, { size: 16 }) }, "La caisse du jour est bloquée tant que la journée précédente n’est ni clôturée ni couverte par une dérogation tracée."))),
             React.createElement(Card, null,
                 React.createElement("div", { className: "grid gap-3" },
                     React.createElement(Field, { label: "\u00C9l\u00E8ve" },
@@ -5068,9 +5089,9 @@ function CorrectionsTab({ data, moi, rafraichirDonnees }) {
     const STATUTS_COULEUR = { en_attente: C.warn, approuvee: C.success, rejetee: C.danger };
     return (React.createElement("div", { className: "grid gap-4 lg:grid-cols-2" },
         React.createElement("div", null,
-            React.createElement(SectionTitle, { sub: "Quatre effets distincts, jamais confondus : une correction ajuste, une annulation efface, un remboursement sort de la caisse, un avoir cr\u00E9dite l'avenir." }, "Corrections"),
+            React.createElement(SectionTitle, { sub: "Une correction ajuste un paiement, une annulation l'efface, un remboursement fait sortir l'argent de la caisse, un avoir cr\u00E9dite les frais \u00E0 venir." }, "Corrections"),
             (moi === null || moi === void 0 ? void 0 : moi.role) !== "Direction" && (React.createElement("div", { className: "mb-3" },
-                React.createElement(Banner, { tone: "info" }, "Ta soumission sera enregistr\u00E9e en attente : elle ne prendra effet qu'apr\u00E8s validation par la Direction."))),
+                React.createElement(Banner, { tone: "info" }, "Votre soumission sera enregistr\u00E9e en attente : elle ne prendra effet qu'apr\u00E8s validation par la Direction."))),
             React.createElement(Card, null,
                 React.createElement("div", { className: "grid gap-3" },
                     React.createElement(Field, { label: "Encaissement concern\u00E9" },
@@ -5096,9 +5117,9 @@ function CorrectionsTab({ data, moi, rafraichirDonnees }) {
                     React.createElement("div", { className: "text-xs", style: { color: C.muted } }, TYPES_CORRECTION[type].aide),
                     estAnnulation ? (paiement && (React.createElement(Banner, { tone: "warn", icon: React.createElement(AlertTriangle, { size: 16 }) },
                         "\u00C9criture compensatrice automatique : ",
-                        React.createElement(Money, { tone: C.danger }, -paiement.montant)))) : (React.createElement(Field, { label: type === "Remboursement" || type === "Avoir" ? "Montant (obligatoirement négatif)" : "Montant (négatif pour diminuer)", hint: "ex. -1000 pour retirer 1 000 FCFA \u2014 v\u00E9rifi\u00E9 c\u00F4t\u00E9 base, ne peut jamais d\u00E9passer le disponible" },
+                        React.createElement(Money, { tone: C.danger }, -paiement.montant)))) : (React.createElement(Field, { label: type === "Remboursement" || type === "Avoir" ? "Montant (obligatoirement négatif)" : "Montant (négatif pour diminuer)", hint: "ex. -1000 pour retirer 1 000 FCFA ; le montant ne peut pas d\u00E9passer ce qui a \u00E9t\u00E9 pay\u00E9" },
                         React.createElement("input", { style: inputStyle, type: "number", onWheel: bloquerMolette, value: montant, onChange: (e) => setMontant(e.target.value) }))),
-                    React.createElement(Field, { label: "Motif (obligatoire)", hint: "au moins 10 caract\u00E8res, pr\u00E9cis \u2014 \u00e9vite les mots isol\u00e9s comme \u00ab erreur \u00bb ou \u00ab correction \u00bb" },
+                    React.createElement(Field, { label: "Motif (obligatoire)", hint: "au moins 10 caract\u00E8res, pr\u00E9cis (\u00e9vitez les mots isol\u00e9s comme \u00ab erreur \u00bb)" },
                         React.createElement("input", { style: inputStyle, value: motif, onChange: (e) => setMotif(e.target.value) })),
                     React.createElement("div", { className: "text-xs", style: { color: C.muted } }, `Soumis par : ${(moi === null || moi === void 0 ? void 0 : moi.nom) || "?"}`),
                     React.createElement("div", null,
@@ -5107,7 +5128,7 @@ function CorrectionsTab({ data, moi, rafraichirDonnees }) {
                             type.toLowerCase())),
                     erreur && (React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))),
             (moi === null || moi === void 0 ? void 0 : moi.role) === "Direction" && enAttente.length > 0 && (React.createElement("div", { className: "mt-4" },
-                React.createElement(SectionTitle, null, "En attente de ta validation"),
+                React.createElement(SectionTitle, null, "En attente de votre validation"),
                 React.createElement("div", { className: "space-y-2" }, enAttente.map((c) => {
                     const p = data.paiements.find((pp) => pp.id === c.paiementId);
                     const el = p ? data.eleves.find((e) => e.id === p.eleveId) : null;
@@ -5271,7 +5292,7 @@ function ImportTab({ data, moi, rafraichirDonnees }) {
                     traiterLignes(lignes);
                 }
                 catch (err) {
-                    setErreur("Impossible de lire ce fichier \u2014 v\u00e9rifie qu'il s'agit bien d'un .csv valide.");
+                    setErreur("Impossible de lire ce fichier \u2014 v\u00e9rifiez qu'il s'agit bien d'un .csv valide.");
                 }
             };
             lecteur.readAsText(fichier, "UTF-8");
@@ -5286,7 +5307,7 @@ function ImportTab({ data, moi, rafraichirDonnees }) {
                     traiterLignes(lignes);
                 }
                 catch (err) {
-                    setErreur("Impossible de lire ce fichier \u2014 v\u00e9rifie qu'il s'agit bien d'un .xlsx valide.");
+                    setErreur("Impossible de lire ce fichier \u2014 v\u00e9rifiez qu'il s'agit bien d'un .xlsx valide.");
                 }
             };
             lecteur.readAsArrayBuffer(fichier);
@@ -5345,7 +5366,7 @@ function ImportTab({ data, moi, rafraichirDonnees }) {
         }
     };
     return (React.createElement("div", null,
-        React.createElement(SectionTitle, { sub: "Un aper\u00e7u avant toute \u00e9criture ; les doublons (fichier ou d\u00e9j\u00e0 en base) sont ignor\u00e9s automatiquement ; la grille tarifaire de la classe fait toujours foi, jamais le fichier." }, "Import d'\u00e9l\u00e8ves"),
+        React.createElement(SectionTitle, { sub: "Un aper\u00e7u s'affiche avant tout enregistrement ; les doublons sont ignor\u00e9s automatiquement ; les montants viennent toujours de la grille tarifaire de la classe, jamais du fichier." }, "Import d'\u00e9l\u00e8ves"),
         React.createElement(Card, { style: { marginBottom: 16 } },
             React.createElement("div", { className: "grid gap-3 sm:grid-cols-2" },
                 React.createElement(Field, { label: "Classe de destination" },
@@ -5486,7 +5507,7 @@ function RepriseSoldesTab({ data, moi, rafraichirDonnees }) {
     const saisir = (id, v) => { setMontants({ ...montants, [id]: v.replace(/\D/g, "") }); setApercu(null); setMessage(""); };
     const previsualiser = async () => {
         setErreur(""); setMessage("");
-        if (lignes.length === 0) return setErreur("Saisis au moins un montant « déjà versé » supérieur à 0.");
+        if (lignes.length === 0) return setErreur("Saisissez au moins un montant « déjà versé » supérieur à 0.");
         setEnvoi(true);
         try {
             const res = await appelerRpc("reprendre_soldes", { p_lignes: lignes, p_motif: motif, p_justificatif: justificatif, p_confirmer: false, p_utilisateur_id: moi && moi.id });
@@ -5517,7 +5538,7 @@ function RepriseSoldesTab({ data, moi, rafraichirDonnees }) {
     };
     const lots = [...(data.lotsReprise || [])].sort((a, b) => (a.creeLe < b.creeLe ? 1 : -1));
     return h("div", null,
-        h(SectionTitle, { sub: "Pour une école qui démarre en cours d'année : saisis, élève par élève, ce qui a déjà été versé avant CERES. Ces montants réduisent les soldes mais n'entrent jamais en caisse, en clôture ni en reçus." }, "Reprise de soldes"),
+        h(SectionTitle, { sub: "Pour une école qui démarre en cours d'année : saisissez, élève par élève, ce qui a déjà été versé avant CERES. Ces montants réduisent les soldes mais n'entrent jamais en caisse, en clôture ni en reçus." }, "Reprise de soldes"),
         erreur && h("div", { className: "mb-3" }, h(Banner, { tone: "danger", icon: h(AlertTriangle, { size: 16 }) }, erreur)),
         message && h("div", { className: "mb-3" }, h(Banner, { tone: "success" }, message)),
         h(Card, { style: { marginBottom: 16 } },
@@ -5550,7 +5571,7 @@ function RepriseSoldesTab({ data, moi, rafraichirDonnees }) {
                 h("span", { className: "text-sm", style: { color: C.muted } }, `${lignes.length} élève(s) · total ${fmt(total)}`))),
         apercu && h(Card, { style: { marginBottom: 16 } },
             h("div", { className: "mb-2", style: { fontWeight: 600, color: C.ink } }, `Prévisualisation : ${apercu.nb_eleves} élève(s) valides, total ${fmt(apercu.total)}`),
-            apercu.nb_erreurs > 0 && h("div", { className: "mb-2" }, h(Banner, { tone: "danger" }, `${apercu.nb_erreurs} ligne(s) en erreur : corrige-les avant de confirmer.`)),
+            apercu.nb_erreurs > 0 && h("div", { className: "mb-2" }, h(Banner, { tone: "danger" }, `${apercu.nb_erreurs} ligne(s) en erreur : corrigez-les avant de confirmer.`)),
             h("div", { className: "space-y-1" }, (apercu.lignes || []).map((l, i) => h("div", { key: i, className: "rounded border p-2 text-xs", style: { borderColor: l.statut === "ok" ? C.border : C.danger } },
                 h("div", { style: { fontWeight: 600, color: C.ink } }, `${l.nom || ""} ${l.matricule ? "· " + l.matricule : ""}`, l.montant ? ` — ${fmt(l.montant)}` : ""),
                 l.statut === "ok"
@@ -5559,7 +5580,7 @@ function RepriseSoldesTab({ data, moi, rafraichirDonnees }) {
             h("div", { className: "mt-3" },
                 h(PrimaryButton, { onClick: confirmer, disabled: envoi || apercu.nb_erreurs > 0 || apercu.nb_eleves === 0 }, "Confirmer la reprise"))),
         lots.length > 0 && h("div", { className: "mt-6" },
-            h(SectionTitle, { sub: "Un lot ne peut être annulé en bloc que si aucun encaissement n'a eu lieu depuis sur les tranches concernées ; sinon, corrige élève par élève depuis son dossier." }, "Lots de reprise"),
+            h(SectionTitle, { sub: "Un lot ne peut être annulé en bloc que si aucun encaissement n'a eu lieu depuis sur les tranches concernées ; sinon, corrigez élève par élève depuis son dossier." }, "Lots de reprise"),
             h("div", { className: "space-y-2" }, lots.map((lot) => h(Card, { key: lot.id },
                 h("div", { className: "flex items-start justify-between gap-2" },
                     h("div", null,
@@ -5627,10 +5648,10 @@ function PassageAnnuelTab({ data, moi, rafraichirDonnees }) {
     const confirmer = async () => {
         setErreur("");
         if (!anneeCible.trim())
-            return setErreur("Indique l'ann\u00e9e scolaire cible (ex. 2027-2028).");
+            return setErreur("Indiquez l'ann\u00e9e scolaire cible (ex. 2027-2028).");
         const liste = elevesClasse.filter((e) => !dejaFait(e.id) && decisions[e.id]);
         if (liste.length === 0)
-            return setErreur("Aucune d\u00e9cision \u00e0 valider (choisis au moins une classe cible ou \u00ab Sort \u00bb pour un \u00e9l\u00e8ve).");
+            return setErreur("Aucune d\u00e9cision \u00e0 valider (choisissez au moins une classe cible ou \u00ab Sort \u00bb pour un \u00e9l\u00e8ve).");
         setEnvoi(true);
         try {
             const p_decisions = liste.map((e) => decisions[e.id] === "sort"
@@ -5793,7 +5814,7 @@ function RecouvrementTab({ data, moi, rafraichirDonnees, cibleInitiale, onCibleC
             setTimeout(() => setMessageCopie(false), 2000);
         }
         catch (e) {
-            setErreur("Impossible de copier automatiquement — sélectionne le texte manuellement.");
+            setErreur("Impossible de copier automatiquement — sélectionnez le texte manuellement.");
         }
     };
     const confirmerEnvoi = async () => {
@@ -5982,7 +6003,7 @@ function RecouvrementTab({ data, moi, rafraichirDonnees, cibleInitiale, onCibleC
                                 ? React.createElement(GhostButton, { onClick: () => window.open(lienWa, "_blank", "noopener,noreferrer"), icon: React.createElement(MessageCircle, { size: 14 }) }, "Ouvrir dans WhatsApp")
                                 : React.createElement("span", { className: "self-center text-xs", style: { color: C.muted } }, "Aucun num\u00E9ro valide pour WhatsApp (fiche de l'\u00E9l\u00E8ve \u00E0 compl\u00E9ter)."),
                             React.createElement(PrimaryButton, { onClick: confirmerEnvoi, disabled: envoiRelance, icon: React.createElement(BellRing, { size: 16 }) }, envoiRelance ? "Envoi\u2026" : "Confirmer l'envoi")),
-                        React.createElement("p", { className: "mt-2 text-xs", style: { color: C.muted } }, "« Ouvrir dans WhatsApp » pr\u00E9pare le message : il reste \u00E0 appuyer sur Envoyer dans WhatsApp. Reviens ensuite confirmer ici pour journaliser la relance \u2014 copier seul ne l'enregistre jamais comme envoy\u00E9e."),
+                        React.createElement("p", { className: "mt-2 text-xs", style: { color: C.muted } }, "« Ouvrir dans WhatsApp » pr\u00E9pare le message : il reste \u00E0 appuyer sur Envoyer dans WhatsApp. Revenez ensuite confirmer ici pour enregistrer la relance \u2014 copier seul ne l'enregistre jamais comme envoy\u00E9e."),
                         React.createElement("div", { className: "mt-3 rounded-lg p-2", style: { background: "#faf6ec", border: `1px solid ${C.border}` } },
                             React.createElement("div", { className: "mb-1 text-xs font-medium uppercase tracking-wide", style: { color: C.muted } }, "La famille conteste ce montant"),
                             React.createElement("p", { className: "mb-2 text-xs", style: { color: C.muted } }, "\u00C0 utiliser quand un parent signale une erreur ou un d\u00E9saccord sur cette \u00E9ch\u00E9ance (d\u00E9j\u00E0 pay\u00E9, montant erron\u00E9, remise non appliqu\u00E9e...) \u2014 pas une contestation de la part de l'\u00E9tablissement."),
@@ -6571,7 +6592,7 @@ function DetailDossierEcartP127({ dossierId, moi, onRetour, alerte }) {
         });
         const signee = (resultat && (resultat.signedURL || resultat.signedUrl));
         if (!signee)
-            throw new Error("Supabase n’a pas fourni d’URL temporaire pour cette pièce.");
+            throw new Error("Impossible d’ouvrir cette pièce pour le moment. Réessayez dans un instant.");
         const absolue = signee.startsWith("http") ? signee : `${SUPABASE_URL}/storage/v1${signee}`;
         const nom = valeurP127(item, "nomFichier", "nomOriginal") || "piece-justificative";
         return telechargement ? `${absolue}${absolue.includes("?") ? "&" : "?"}download=${encodeURIComponent(nom)}` : absolue;
@@ -7015,7 +7036,7 @@ function HistoriqueEcartsTab({ moi }) {
     });
     const nombreAlertes = etat.dossiers.filter((dossier) => alertes.has(dossier.id)).length;
     return React.createElement("div", null,
-        React.createElement(SectionTitle, { sub: "Constats financiers figés, suivi nominatif et vocabulaire neutre." }, "Historique des écarts"),
+        React.createElement(SectionTitle, { sub: "Suivi des \u00e9carts constat\u00e9s lors des contr\u00f4les, \u00e9l\u00e8ve par \u00e9l\u00e8ve." }, "Historique des écarts"),
         etat.simulation && React.createElement(Banner, { tone: "info" }, "Scénario P1-27 de prévisualisation — dossiers entièrement fictifs."),
         nombreAlertes > 0 && React.createElement("div", { className: "mt-3" },
             React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) },
@@ -7691,7 +7712,7 @@ function RapprochementImportTab({ moi, data }) {
         });
         const signee = (resultat === null || resultat === void 0 ? void 0 : resultat.signedURL) || (resultat === null || resultat === void 0 ? void 0 : resultat.signedUrl);
         if (!signee)
-            throw new Error("Supabase n’a pas fourni d’URL temporaire pour ce justificatif.");
+            throw new Error("Impossible d’ouvrir ce justificatif pour le moment. Réessayez dans un instant.");
         const absolue = signee.startsWith("http") ? signee : `${SUPABASE_URL}/storage/v1${signee}`;
         return telechargement
             ? `${absolue}${absolue.includes("?") ? "&" : "?"}download=${encodeURIComponent(ligne.fichierNom || "justificatif")}`
@@ -7812,7 +7833,7 @@ function RapprochementImportTab({ moi, data }) {
             ? { color: C.danger, background: C.dangerBg }
             : { color: C.warn, background: C.warnBg };
     return (React.createElement("div", null,
-        React.createElement(SectionTitle, { sub: "Chaque ligne appartient uniquement à ton établissement. Les changements de statut et de commentaire sont attribués au compte connecté et horodatés." }, "Relevés importés"),
+        React.createElement(SectionTitle, { sub: "Chaque modification de statut ou de commentaire est enregistrée avec le nom de son auteur et l'heure." }, "Relevés importés"),
         React.createElement(Card, { style: { marginBottom: 16 } },
             React.createElement("div", { className: "flex flex-wrap items-end justify-between gap-3" },
                 React.createElement("div", null,
@@ -7989,7 +8010,7 @@ function ClotureTab({ data, moi, dateInitiale, blocageCaisse, cloturesVerrouille
     const ajouterMouvement = async () => {
         setErreur("");
         if (blocageCaisse && date === todayISO())
-            return setErreur("P1-26 : la journée de caisse précédente doit être clôturée ou couverte par une dérogation tracée.");
+            return setErreur("La journée de caisse précédente doit être clôturée ou couverte par une dérogation tracée.");
         const m = Number(mvMontant);
         if (!m)
             return setErreur("Le montant du mouvement ne peut pas être 0.");
@@ -8139,7 +8160,7 @@ function ClotureTab({ data, moi, dateInitiale, blocageCaisse, cloturesVerrouille
                 React.createElement("span", { style: { color: c.verrouillee ? C.success : C.warn, fontSize: 13, display: "flex", alignItems: "center", gap: 4 } },
                     c.verrouillee ? React.createElement(Lock, { size: 14 }) : React.createElement(Unlock, { size: 14 }),
                     c.verrouillee ? "Verrouillée" : "Rouverte")))))),
-        React.createElement(SectionTitle, { sub: "Une dérogation autorise le travail du jour sans effacer l’anomalie de la journée antérieure." }, "Historique des dérogations P1-26"),
+        React.createElement(SectionTitle, { sub: "Une dérogation autorise le travail du jour sans effacer l’anomalie de la journée antérieure." }, "Historique des dérogations"),
         (data.derogationsCaisse || []).length === 0 && React.createElement(Banner, { tone: "info" }, "Aucune dérogation de caisse enregistrée."),
         React.createElement("div", { className: "space-y-2" }, (data.derogationsCaisse || []).map((d) => React.createElement(Card, { key: d.id },
             React.createElement("div", { style: { fontWeight: 600 } }, `Journée non clôturée du ${formatDateFR(d.dateJourneeNonCloturee)} — autorisation pour le ${formatDateFR(d.dateAutorisee)}`),
@@ -8376,16 +8397,16 @@ async function horodatageServeur() {
             headers: { "X-CERES-Horodatage": "1" },
         });
         if (!reponse.ok)
-            throw new Error(`Le serveur a répondu ${reponse.status}.`);
+            throw new Error(`Le service ne répond pas correctement. Réessayez dans un instant.`);
         const entete = reponse.headers.get("date");
         const valeur = entete ? new Date(entete) : null;
         if (!valeur || isNaN(valeur.getTime()))
-            throw new Error("L’horodatage du serveur n’est pas disponible.");
+            throw new Error("L’heure officielle n’est pas disponible. Réessayez dans un instant.");
         return valeur.toISOString();
     }
     catch (e) {
         if ((e === null || e === void 0 ? void 0 : e.name) === "AbortError")
-            throw new Error("Le serveur n’a pas répondu dans le délai de 8 secondes.");
+            throw new Error("Le service n’a pas répondu à temps. Vérifiez votre connexion Internet et réessayez.");
         throw e;
     }
     finally {
@@ -8487,12 +8508,12 @@ function Dashboard({ data, onOuvrirDossier, peutRecouvrer, role, nomEtablissemen
     }, [typePeriode, debutPersonnalise, finPersonnalisee, anneeActive, anneesDisponibles.join("|"), tentativeHorodatage]);
     if (chargementPeriode) {
         return React.createElement("div", null,
-            React.createElement(SectionTitle, { sub: "Les mêmes chiffres que dans chaque dossier individuel — jamais un total qui ne se retrouve pas dans le détail." }, "Vue d'ensemble — " + (nomEtablissement || "votre établissement")),
+            React.createElement(SectionTitle, { sub: "Situation financière de l'établissement, calculée à partir des dossiers des élèves." }, "Vue d'ensemble — " + (nomEtablissement || "votre établissement")),
             React.createElement(Banner, { tone: "info" }, "Recalcul de toute la Vue d’ensemble en cours…"));
     }
     if (!selectionAppliquee) {
         return React.createElement("div", null,
-            React.createElement(SectionTitle, { sub: "Les mêmes chiffres que dans chaque dossier individuel — jamais un total qui ne se retrouve pas dans le détail." }, "Vue d'ensemble — " + (nomEtablissement || "votre établissement")),
+            React.createElement(SectionTitle, { sub: "Situation financière de l'établissement, calculée à partir des dossiers des élèves." }, "Vue d'ensemble — " + (nomEtablissement || "votre établissement")),
             React.createElement(Card, { style: { marginBottom: 12 } },
                 React.createElement("div", { className: "flex flex-wrap items-end gap-3" },
                     React.createElement(Field, { label: "Période" },
@@ -8606,13 +8627,13 @@ function Dashboard({ data, onOuvrirDossier, peutRecouvrer, role, nomEtablissemen
         })
         .slice(0, 5);
     const blocNature = repartitionNature.length === 0 ? null : React.createElement("div", { className: "mt-6" },
-        React.createElement(SectionTitle, { sub: "Le m\u00EAme reste \u00E0 recouvrer, regroup\u00E9 par nature de frais plut\u00F4t que par classe." }, "Impay\u00E9s par nature de frais"),
+        React.createElement(SectionTitle, { sub: "Le reste \u00E0 recouvrer, regroup\u00E9 par nature de frais plut\u00F4t que par classe." }, "Impay\u00E9s par nature de frais"),
         React.createElement("div", { className: "grid gap-2 sm:grid-cols-2" }, repartitionNature.map((n) => React.createElement(Card, { key: n.nom },
             React.createElement("div", { className: "flex items-center justify-between text-sm" },
                 React.createElement("span", { style: { color: C.ink } }, n.nom, " ", React.createElement("span", { style: { color: C.muted } }, "\u00B7 ", n.nbEleves, " \u00E9l\u00E8ve(s)")),
                 React.createElement(Money, { tone: C.danger }, n.retard))))));
     return (React.createElement("div", null,
-        React.createElement(SectionTitle, { sub: "Les m\u00EAmes chiffres que dans chaque dossier individuel \u2014 jamais un total qui ne se retrouve pas dans le d\u00E9tail." }, "Vue d'ensemble \u2014 " + (nomEtablissement || "votre \u00E9tablissement")),
+        React.createElement(SectionTitle, { sub: "Situation financi\u00e8re de l'\u00e9tablissement, calcul\u00e9e \u00e0 partir des dossiers des \u00e9l\u00e8ves." }, "Vue d'ensemble \u2014 " + (nomEtablissement || "votre \u00E9tablissement")),
         React.createElement(Card, { style: { marginBottom: 12 } },
             React.createElement("div", { className: "flex flex-wrap items-end gap-3" },
                 React.createElement(Field, { label: "Période" },
@@ -8728,13 +8749,13 @@ function Dashboard({ data, onOuvrirDossier, peutRecouvrer, role, nomEtablissemen
                     React.createElement(GhostButton, { onClick: () => lancerExportExcel("impayes"), icon: React.createElement(BellRing, { size: 14 }) }, "Impay\u00E9s uniquement (Excel)")),
                 messageExcel && React.createElement("p", { className: "mt-2 text-xs", style: { color: C.muted }, role: "status" }, messageExcel))),
         peutExporterTout && React.createElement("div", { className: "mt-6" },
-            React.createElement(SectionTitle, { sub: "Une copie t'appartient, ind\u00E9pendante de Supabase \u2014 garde-la \u00E0 jour r\u00E9guli\u00E8rement." }, "Export & sauvegarde"),
+            React.createElement(SectionTitle, { sub: "Conservez une copie de vos donn\u00E9es, ind\u00E9pendante de l'application, et mettez-la \u00E0 jour r\u00E9guli\u00E8rement." }, "Export & sauvegarde"),
             React.createElement(Card, null,
                 React.createElement("div", { className: "flex flex-wrap gap-2" },
                     React.createElement(GhostButton, { onClick: () => exporterSauvegardeExcel(data, nomEtablissement), icon: React.createElement(Receipt, { size: 14 }) }, "Sauvegarde compl\u00E8te lisible (Excel)"),
                     React.createElement(GhostButton, { onClick: () => exporterElevesCSV(data), icon: React.createElement(Receipt, { size: 14 }) }, "T\u00E9l\u00E9charger la liste des \u00E9l\u00E8ves (CSV)"),
                     React.createElement(GhostButton, { onClick: () => exporterSauvegardeJSON(data), icon: React.createElement(Lock, { size: 14 }) }, "T\u00E9l\u00E9charger une sauvegarde compl\u00E8te (JSON)")),
-                React.createElement("p", { className: "mt-2 text-xs", style: { color: C.muted } }, "Le CSV s'ouvre directement dans Excel. La sauvegarde JSON est une copie technique compl\u00E8te de toutes les donn\u00E9es de ton \u00E9tablissement \u2014 \u00E0 conserver de c\u00F4t\u00E9, pas destin\u00E9e \u00E0 \u00EAtre relue \u00E0 l'\u0153il nu.")))));
+                React.createElement("p", { className: "mt-2 text-xs", style: { color: C.muted } }, "Le CSV s'ouvre directement dans Excel. La sauvegarde (fichier JSON) est une copie compl\u00E8te de toutes les donn\u00E9es de votre \u00E9tablissement, \u00E0 conserver de c\u00F4t\u00E9 ; elle n'est pas faite pour \u00EAtre lue directement.")))));
 }
 /* ------------------------------------------------------------------ */
 /* App principale                                                      */
@@ -9215,7 +9236,7 @@ function AdministrationCeresTab({ moi }) {
         React.createElement("label", { className: "mb-3 flex items-center gap-2 text-sm", style: { color: C.muted } },
             React.createElement("input", { type: "checkbox", checked: masquerTests, onChange: (ev) => setMasquerTests(ev.target.checked) }),
             `Masquer les écoles de test et d'entraînement (${toutes.length - visibles.length} masquée${toutes.length - visibles.length > 1 ? "s" : ""})`),
-        React.createElement(SectionTitle, { sub: "Cr\u00E9er une \u00E9cole lui donne aussit\u00F4t ses propres donn\u00E9es, totalement s\u00E9par\u00E9es des autres \u2014 tu ne vois ici que la liste et l'abonnement, jamais leur contenu financier." }, "Administration CERES \u2014 \u00E9tablissements"),
+        React.createElement(SectionTitle, { sub: "Cr\u00E9er une \u00E9cole lui donne aussit\u00F4t ses propres donn\u00E9es, totalement s\u00E9par\u00E9es des autres \u2014 vous ne voyez ici que la liste et l'abonnement, jamais leur contenu financier." }, "Administration CERES \u2014 \u00E9tablissements"),
         React.createElement(Card, { style: { marginBottom: 16 } },
             React.createElement("div", { className: "grid gap-3 sm:grid-cols-3" },
                 React.createElement(Field, { label: "Nom de l'\u00E9tablissement" },
@@ -9341,7 +9362,7 @@ function ContinuiteAdminSection({ moi }) {
     const jeSuisSuppleantActif = (moi.statutAdminCeres === "suppleant_rang1" || moi.statutAdminCeres === "suppleant_rang2") && moi.suppleantActif;
     const jeSuisSuppleantDormant = (moi.statutAdminCeres === "suppleant_rang1" || moi.statutAdminCeres === "suppleant_rang2") && !moi.suppleantActif;
     return (React.createElement("div", null,
-        React.createElement(SectionTitle, { sub: "Qui peut administrer CERES centralement (cr\u00E9er des \u00E9tablissements, g\u00E9rer les abonnements) si toi tu n'es plus disponible." }, "Continuit\u00E9 de l'administration"),
+        React.createElement(SectionTitle, { sub: "Qui peut administrer CERES centralement (cr\u00E9er des \u00E9tablissements, g\u00E9rer les abonnements) si vous n'\u00EAtes plus disponible." }, "Continuit\u00E9 de l'administration"),
         erreur && React.createElement("div", { className: "mb-3" }, React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)),
         React.createElement(Card, { style: { marginBottom: 16 } },
             React.createElement("div", { className: "space-y-2 text-sm" },
@@ -9388,7 +9409,7 @@ function PanelPrincipalContinuite({ etat, envoi, appeler }) {
             const r = await appelerRpc("rechercher_utilisateur_par_email", { p_email: emailRecherche.trim() });
             setResultats(r || []);
             if (!r || r.length === 0)
-                setRechercheErreur("Aucun utilisateur trouv\u00e9 avec cet e-mail. V\u00e9rifie qu'il a bien \u00e9t\u00e9 ajout\u00e9 dans l'onglet Utilisateurs.");
+                setRechercheErreur("Aucun utilisateur trouv\u00e9 avec cet e-mail. V\u00e9rifiez qu'il a bien \u00e9t\u00e9 ajout\u00e9 dans l'onglet Utilisateurs.");
         }
         catch (e) {
             setRechercheErreur(String((e === null || e === void 0 ? void 0 : e.message) || e));
@@ -9413,7 +9434,7 @@ function PanelPrincipalContinuite({ etat, envoi, appeler }) {
             React.createElement("div", { className: "mt-2 grid gap-2 sm:grid-cols-2" },
                 React.createElement(Field, { label: "Motif" },
                     React.createElement("input", { style: inputStyle, value: motifDesignation, onChange: (e) => setMotifDesignation(e.target.value) })),
-                React.createElement(Field, { label: "Tape le nom exact de la personne pour confirmer" },
+                React.createElement(Field, { label: "Saisissez le nom exact de la personne pour confirmer" },
                     React.createElement("input", { style: inputStyle, value: confirmDesignation, onChange: (e) => setConfirmDesignation(e.target.value) }))),
             React.createElement("div", { className: "mt-2" },
                 React.createElement(PrimaryButton, { disabled: envoi || !cibleId || !motifDesignation.trim() || !confirmDesignation.trim(), onClick: () => appeler("designer_suppleant", { p_rang: rangDesignation, p_utilisateur_id: cibleId, p_motif: motifDesignation, p_confirmation_nom: confirmDesignation }) }, "D\u00E9signer"))),
@@ -9426,7 +9447,7 @@ function PanelPrincipalContinuite({ etat, envoi, appeler }) {
                         React.createElement("option", { value: 2 }, "Rang 2"))),
                 React.createElement(Field, { label: "Motif" },
                     React.createElement("input", { style: inputStyle, value: motifActivation, onChange: (e) => setMotifActivation(e.target.value) })),
-                React.createElement(Field, { label: "Tape ton propre nom pour confirmer" },
+                React.createElement(Field, { label: "Saisissez votre propre nom pour confirmer" },
                     React.createElement("input", { style: inputStyle, value: confirmActivation, onChange: (e) => setConfirmActivation(e.target.value) }))),
             React.createElement("div", { className: "mt-2" },
                 React.createElement(PrimaryButton, { disabled: envoi || !motifActivation.trim() || !confirmActivation.trim(), onClick: () => appeler("activer_suppleant_planifie", { p_rang: rangActivation, p_motif: motifActivation, p_confirmation_nom: confirmActivation }) }, "Activer"))),
@@ -9438,7 +9459,7 @@ function PanelPrincipalContinuite({ etat, envoi, appeler }) {
             React.createElement(FinSuppleanceForm, { envoi: envoi, appeler: appeler }))),
         React.createElement(Card, { style: { borderColor: C.dangerBg } },
             React.createElement("div", { style: { fontWeight: 600, marginBottom: 8, color: C.danger } }, "Passation durable \u2014 transf\u00E9rer d\u00E9finitivement le r\u00F4le de Principal"),
-            React.createElement("div", { className: "text-xs mb-2", style: { color: C.muted } }, "Tu perdras imm\u00E9diatement tous tes droits d'administrateur central CERES."),
+            React.createElement("div", { className: "text-xs mb-2", style: { color: C.muted } }, "Vous perdrez imm\u00E9diatement tous vos droits d'administrateur central CERES."),
             React.createElement("div", { className: "grid gap-2 sm:grid-cols-2" },
                 React.createElement(Field, { label: "Rechercher le successeur par e-mail" },
                     React.createElement("div", { className: "flex gap-2" },
@@ -9446,7 +9467,7 @@ function PanelPrincipalContinuite({ etat, envoi, appeler }) {
                         React.createElement(GhostButton, { onClick: rechercher }, "Chercher"))),
                 React.createElement(Field, { label: "Motif (obligatoire, d\u00E9taill\u00E9)" },
                     React.createElement("input", { style: inputStyle, value: motifPassation, onChange: (e) => setMotifPassation(e.target.value) }))),
-            React.createElement(Field, { label: "Tape ton propre nom pour confirmer" },
+            React.createElement(Field, { label: "Saisissez votre propre nom pour confirmer" },
                 React.createElement("input", { style: inputStyle, value: confirmPassation, onChange: (e) => setConfirmPassation(e.target.value) })),
             React.createElement("div", { className: "mt-2" },
                 React.createElement(GhostButton, { disabled: envoi || !cibleId || motifPassation.trim().length < 10 || !confirmPassation.trim(), onClick: () => appeler("passation_durable_planifiee", { p_nouveau_principal_id: cibleId, p_motif: motifPassation, p_confirmation_nom: confirmPassation }) }, "Transf\u00E9rer d\u00E9finitivement")))));
@@ -9457,7 +9478,7 @@ function FinSuppleanceForm({ envoi, appeler }) {
     return (React.createElement("div", { className: "grid gap-2 sm:grid-cols-3 sm:items-end" },
         React.createElement(Field, { label: "Motif" },
             React.createElement("input", { style: inputStyle, value: motif, onChange: (e) => setMotif(e.target.value) })),
-        React.createElement(Field, { label: "Tape ton propre nom pour confirmer" },
+        React.createElement(Field, { label: "Saisissez votre propre nom pour confirmer" },
             React.createElement("input", { style: inputStyle, value: confirmation, onChange: (e) => setConfirmation(e.target.value) })),
         React.createElement(GhostButton, { disabled: envoi || !motif.trim() || !confirmation.trim(), onClick: () => appeler("terminer_suppleance", { p_motif: motif, p_confirmation_nom: confirmation }) }, "Mettre fin")));
 }
@@ -9466,7 +9487,7 @@ function PanelSuppleantDormantContinuite({ envoi, appeler }) {
     const [phrase, setPhrase] = useState("");
     return (React.createElement(Card, { style: { borderColor: C.dangerBg } },
         React.createElement("div", { style: { fontWeight: 600, marginBottom: 4, color: C.danger } }, "Activation d'urgence"),
-        React.createElement("div", { className: "text-xs mb-2", style: { color: C.muted } }, `À utiliser uniquement si l'Administrateur principal est réellement injoignable. Tape exactement : "${PHRASE_URGENCE}"`),
+        React.createElement("div", { className: "text-xs mb-2", style: { color: C.muted } }, `À utiliser uniquement si l'Administrateur principal est réellement injoignable. Saisissez exactement : "${PHRASE_URGENCE}"`),
         React.createElement(Field, { label: "Motif d\u00E9taill\u00E9 (obligatoire)" },
             React.createElement("input", { style: inputStyle, value: motif, onChange: (e) => setMotif(e.target.value) })),
         React.createElement(Field, { label: "Phrase de confirmation" },
@@ -9486,7 +9507,7 @@ function PanelSuppleantActifContinuite({ etat, joursInactivitePrincipal, envoi, 
             React.createElement("div", { className: "grid gap-2 sm:grid-cols-2" },
                 React.createElement(Field, { label: "Motif" },
                     React.createElement("input", { style: inputStyle, value: motifFin, onChange: (e) => setMotifFin(e.target.value) })),
-                React.createElement(Field, { label: "Tape ton propre nom pour confirmer" },
+                React.createElement(Field, { label: "Saisissez votre propre nom pour confirmer" },
                     React.createElement("input", { style: inputStyle, value: confirmFin, onChange: (e) => setConfirmFin(e.target.value) }))),
             React.createElement("div", { className: "mt-2" },
                 React.createElement(PrimaryButton, { disabled: envoi || !motifFin.trim() || !confirmFin.trim(), onClick: () => appeler("terminer_suppleance", { p_motif: motifFin, p_confirmation_nom: confirmFin }) }, "Mettre fin"))),
@@ -9497,7 +9518,7 @@ function PanelSuppleantActifContinuite({ etat, joursInactivitePrincipal, envoi, 
                 : `Pas encore possible — délai de 30 jours sans activité du Principal non atteint (${joursInactivitePrincipal !== null ? joursInactivitePrincipal : "?"} jour(s) écoulé(s)).`),
             React.createElement(Field, { label: "Motif d\u00E9taill\u00E9 (obligatoire, au moins 20 caract\u00E8res)" },
                 React.createElement("input", { style: inputStyle, value: motifPassation, onChange: (e) => setMotifPassation(e.target.value) })),
-            React.createElement(Field, { label: `Tape exactement : "${PHRASE_INACTIVITE}"` },
+            React.createElement(Field, { label: `Saisissez exactement : "${PHRASE_INACTIVITE}"` },
                 React.createElement("input", { style: inputStyle, value: phrasePassation, onChange: (e) => setPhrasePassation(e.target.value) })),
             React.createElement("div", { className: "mt-2" },
                 React.createElement(GhostButton, { disabled: envoi || !delaiAtteint || motifPassation.trim().length < 20 || phrasePassation !== PHRASE_INACTIVITE, onClick: () => appeler("passation_apres_inactivite", { p_motif: motifPassation, p_confirmation_phrase: phrasePassation }) }, "Confirmer la passation d\u00E9finitive")))));
@@ -9609,7 +9630,7 @@ function EtablissementTab({ etablissementId, etablissement, modeDemo, onIdentite
             }
             onIdentiteChange(nettoye);
             setMessage(modeDemo
-                ? "Aperçu mis à jour — en mode démonstration, rien n'est enregistré dans la base."
+                ? "Aperçu mis à jour. En mode démonstration, rien n'est enregistré."
                 : "Identité enregistrée : elle figurera sur tous les prochains reçus.");
         }
         catch (e) {
@@ -9632,7 +9653,7 @@ function EtablissementTab({ etablissementId, etablissement, modeDemo, onIdentite
     });
     return (React.createElement("div", null,
         React.createElement(SectionTitle, { sub: "Ces informations s'impriment en en-tête de chaque reçu. L'aperçu se met à jour pendant que vous tapez." }, "Mon établissement"),
-        modeDemo && React.createElement("div", { className: "mb-3" }, React.createElement(Banner, { tone: "warn" }, "Mode démonstration : vous pouvez essayer, mais rien n'est enregistré dans la base.")),
+        modeDemo && React.createElement("div", { className: "mb-3" }, React.createElement(Banner, { tone: "warn" }, "Mode démonstration : vous pouvez essayer, mais rien n'est enregistré.")),
         React.createElement("div", { className: "grid gap-4 lg:grid-cols-2" },
             React.createElement(Card, null,
                 React.createElement("div", { className: "space-y-3" },
@@ -9741,7 +9762,7 @@ function UtilisateursTab({ etablissementId, moi }) {
         }
     };
     return (React.createElement("div", null,
-        React.createElement(SectionTitle, { sub: "Un compte ajout\u00E9 ici n'a pas de mot de passe \u00E0 transmettre : la personne se connecte elle-m\u00EAme avec son adresse e-mail, comme toi." }, "Utilisateurs & habilitations"),
+        React.createElement(SectionTitle, { sub: "Un compte ajout\u00E9 ici n'a pas de mot de passe \u00E0 transmettre : la personne se connecte elle-m\u00EAme avec son adresse e-mail, comme vous." }, "Utilisateurs & habilitations"),
         React.createElement(Card, { style: { marginBottom: 16 } },
             React.createElement("div", { className: "grid gap-3 sm:grid-cols-4 sm:items-end" },
                 React.createElement(Field, { label: "Nom" },
@@ -9774,7 +9795,7 @@ function UtilisateursTab({ etablissementId, moi }) {
                     React.createElement("div", { className: "text-xs", style: { color: C.muted } },
                         u.role,
                         !u.authUserId && React.createElement("span", { style: { color: C.gold } }, " \u00B7 en attente de premi\u00E8re connexion"),
-                        u.id === (moi === null || moi === void 0 ? void 0 : moi.id) && React.createElement("span", null, " \u00B7 c'est toi"))),
+                        u.id === (moi === null || moi === void 0 ? void 0 : moi.id) && React.createElement("span", null, " \u00B7 c'est vous"))),
                 React.createElement("div", { className: "flex items-center gap-2" },
                     React.createElement("span", { className: "rounded-full px-2 py-0.5 text-xs", style: { background: u.actif ? C.successBg : C.dangerBg, color: u.actif ? C.success : C.danger } }, u.actif ? "Actif" : "Suspendu"),
                     u.id !== (moi === null || moi === void 0 ? void 0 : moi.id) && (React.createElement(GhostButton, { onClick: () => basculerActif(u), tone: u.actif ? C.danger : C.success }, u.actif ? "Suspendre" : "Réactiver"))))))),
@@ -9810,7 +9831,7 @@ function PassationDirectionSection({ liste, moi }) {
     return (React.createElement("div", { className: "mt-8 border-t pt-6", style: { borderColor: C.border } },
         React.createElement(Card, { style: { borderColor: C.dangerBg } },
             React.createElement("div", { style: { fontWeight: 600, marginBottom: 4, color: C.danger } }, "Passation de Direction \u2014 proc\u00E9dure formelle"),
-            React.createElement("div", { className: "text-xs mb-2", style: { color: C.muted } }, "Tu perdras imm\u00E9diatement le r\u00F4le Direction de cet \u00E9tablissement (tu deviendras Administration \u00E9tablissement). Cette action est enregistr\u00E9e dans un journal de passation."),
+            React.createElement("div", { className: "text-xs mb-2", style: { color: C.muted } }, "Vous perdrez imm\u00E9diatement le r\u00F4le Direction de cet \u00E9tablissement (vous deviendrez Administration \u00E9tablissement). Cette action est enregistr\u00E9e."),
             erreur && React.createElement("div", { className: "mb-2" }, React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)),
             React.createElement("div", { className: "mb-3 flex gap-1" },
                 candidats.length > 0 && React.createElement("button", { onClick: () => setModeSuccesseur("existant"), className: "rounded-full px-2.5 py-1 text-xs font-medium", style: { background: modeSuccesseur === "existant" ? C.navy : "#f1eee6", color: modeSuccesseur === "existant" ? "#fff" : C.muted } }, "D\u00E9j\u00E0 dans le syst\u00E8me"),
@@ -9829,7 +9850,7 @@ function PassationDirectionSection({ liste, moi }) {
                             React.createElement("input", { style: inputStyle, type: "email", value: nouveauEmail, onChange: (e) => setNouveauEmail(e.target.value) }))),
                 React.createElement(Field, { label: "Motif" },
                     React.createElement("input", { style: inputStyle, value: motif, onChange: (e) => setMotif(e.target.value) })),
-                React.createElement(Field, { label: "Tape ton propre nom pour confirmer" },
+                React.createElement(Field, { label: "Saisissez votre propre nom pour confirmer" },
                     React.createElement("input", { style: inputStyle, value: confirmation, onChange: (e) => setConfirmation(e.target.value) }))),
             modeSuccesseur === "nouveau" && React.createElement("p", { className: "mt-2 text-xs", style: { color: C.muted } }, "Le nouveau directeur recevra un lien de connexion par e-mail d\u00e8s sa premi\u00e8re visite, comme n'importe quel nouveau compte."),
             React.createElement("div", { className: "mt-2" },
@@ -9858,7 +9879,7 @@ function LoginScreen({ onDemarrerDemo }) {
     const envoyer = async () => {
         setErreur("");
         if (!email.trim() || !email.includes("@"))
-            return setErreur("Entre une adresse e-mail valide.");
+            return setErreur("Saisissez une adresse e-mail valide.");
         setEnvoi(true);
         try {
             await envoyerLienMagique(email.trim());
@@ -9912,23 +9933,23 @@ function LoginScreen({ onDemarrerDemo }) {
                 React.createElement("div", { style: { fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 22, color: C.navy } }, "Scolarit\u00E9"),
                 React.createElement("div", { style: { fontSize: 11, color: C.muted, letterSpacing: "0.04em" } }, "CONNEXION")),
             React.createElement(Card, null, !envoye ? (React.createElement(React.Fragment, null,
-                React.createElement("p", { className: "mb-3 text-sm", style: { color: C.muted } }, "Aucun mot de passe \u00E0 retenir. Entre ton adresse e-mail, tu recevras un lien de connexion."),
+                React.createElement("p", { className: "mb-3 text-sm", style: { color: C.muted } }, "Aucun mot de passe \u00E0 retenir. Saisissez votre adresse e-mail : vous recevrez un lien de connexion."),
                 React.createElement(Field, { label: "Adresse e-mail" },
                     React.createElement("input", { style: inputStyle, type: "email", value: email, onChange: (e) => setEmail(e.target.value), placeholder: "toi@exemple.com", onKeyDown: (e) => e.key === "Enter" && envoyer() })),
                 React.createElement("div", { className: "mt-3" },
                     React.createElement(PrimaryButton, { onClick: envoyer, disabled: envoi }, envoi ? "Envoi..." : "Envoyer le lien de connexion")),
                 erreur && (React.createElement("div", { className: "mt-3" },
                     React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur))))) : (React.createElement(Banner, { tone: "success", icon: React.createElement(CheckCircle2, { size: 16 }) },
-                "V\u00E9rifie ta bo\u00EEte mail (",
+                "V\u00E9rifiez votre bo\u00EEte mail (",
                 React.createElement("strong", null, email),
-                ") et clique sur le lien re\u00E7u pour te connecter. Pense \u00E0 regarder aussi le dossier ind\u00E9sirables/spam."))),
+                ") et cliquez sur le lien re\u00E7u pour vous connecter. Pensez \u00E0 regarder aussi le dossier ind\u00E9sirables/spam."))),
             React.createElement("div", { className: "mt-4 text-center" }, React.createElement("a", { href: "/demander-etablissement.html", className: "text-sm underline", style: { color: C.navy, fontWeight: 600 } }, "Demander un abonnement pour mon \u00E9cole")),
             React.createElement("div", { className: "mt-4 text-center" }, !voirDemo ? (React.createElement("button", { onClick: ouvrirDemo, className: "text-xs underline", style: { color: C.muted } }, "Essayer l'\u00E9cole d'entra\u00EEnement sans compte")) : (React.createElement(Card, { style: { marginTop: 8 } },
                 React.createElement("div", { style: { fontWeight: 600, marginBottom: 6, fontSize: 13, color: C.ink } }, "Mode d\u00E9monstration \u2014 donn\u00E9es fictives"),
-                React.createElement("div", { className: "text-xs mb-2", style: { color: C.muted } }, "Choisis un profil pour explorer l'application sans lien de connexion. Rien de ce que tu feras ici n'affecte une vraie \u00E9cole."),
+                React.createElement("div", { className: "text-xs mb-2", style: { color: C.muted } }, "Choisissez un profil pour explorer l'application sans lien de connexion. Rien de ce que vous ferez ici n'affecte une vraie \u00E9cole."),
                 chargementDemo && React.createElement(Banner, { tone: "info" }, "Chargement..."),
                 erreurDemo && React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreurDemo),
-                personasAffichees && personasAffichees.length === 0 && React.createElement(Banner, { tone: "info" }, "Aucun profil de d\u00E9monstration n'est encore configur\u00E9 (ajoute-en dans Utilisateurs une fois connect\u00E9 normalement)."),
+                personasAffichees && personasAffichees.length === 0 && React.createElement(Banner, { tone: "info" }, "Aucun profil de d\u00E9monstration n'est encore configur\u00E9 (ajoutez-en dans Utilisateurs une fois connect\u00E9 normalement)."),
                 personasAffichees && personasAffichees.length > 0 && (React.createElement("div", { className: "space-y-1" }, personasAffichees.map((p) => (React.createElement(GhostButton, { key: p.id, onClick: () => onDemarrerDemo(p, etabDemoId), style: { width: "100%", justifyContent: "flex-start" } }, `${p.nom} \u2014 ${p.role}`)))))))))));
 }
 function CeresNoyauFinancier() {
@@ -10300,9 +10321,9 @@ function CeresNoyauFinancier() {
     }
     if (loading || !profil) {
         return (React.createElement("div", { style: { fontFamily: "'Inter', sans-serif", padding: 40, color: C.muted, maxWidth: 600 } }, saveError ? (React.createElement("div", null,
-            React.createElement("p", { className: "mb-2", style: { color: C.danger, fontWeight: 600 } }, "Le chargement de ton profil a \u00E9chou\u00E9."),
+            React.createElement("p", { className: "mb-2", style: { color: C.danger, fontWeight: 600 } }, "Le chargement de votre profil a \u00E9chou\u00E9."),
             saveErrorDetail && (React.createElement("div", { className: "mb-3 rounded p-2", style: { background: "#fff", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: C.danger, wordBreak: "break-word" } }, saveErrorDetail)),
-            React.createElement("button", { onClick: handleDeconnexion, className: "rounded px-3 py-1.5 text-sm", style: { border: `1px solid ${C.border}`, color: C.navy } }, "Se d\u00E9connecter et r\u00E9essayer"))) : ("Chargement de ton profil…")));
+            React.createElement("button", { onClick: handleDeconnexion, className: "rounded px-3 py-1.5 text-sm", style: { border: `1px solid ${C.border}`, color: C.navy } }, "Se d\u00E9connecter et r\u00E9essayer"))) : ("Chargement de votre profil…")));
     }
     return (React.createElement("div", { className: tabsVisibles.length >= 2 && tabsVisibles.length <= 6 ? "ceres-avec-barre" : "", style: { fontFamily: "'Inter', sans-serif", background: C.cream, minHeight: 600 } },
         React.createElement("style", null, FONT_IMPORT),
@@ -10338,14 +10359,14 @@ function CeresNoyauFinancier() {
         saveError && (React.createElement("div", { className: "mx-auto max-w-7xl px-3 pt-3 sm:px-5" },
             React.createElement(Banner, { tone: "warn", icon: React.createElement(AlertTriangle, { size: 16 }) },
                 React.createElement("div", null,
-                    "La connexion \u00E0 la base de donn\u00E9es a \u00E9chou\u00E9 (chargement ou derni\u00E8re action).",
+                    "La connexion au service a \u00E9chou\u00E9 (chargement ou derni\u00E8re action). V\u00E9rifiez votre connexion Internet.",
                     saveErrorDetail && (React.createElement("div", { className: "mt-1 rounded px-2 py-1", style: { background: "#fff", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: C.danger, wordBreak: "break-word" } }, saveErrorDetail)))))),
         React.createElement("div", { className: "mx-auto max-w-7xl px-3 pt-3 sm:px-5" }, (profil === null || profil === void 0 ? void 0 : profil.modeDemo) ? (React.createElement(Banner, { tone: "warn" },
-            "Mode d\u00E9monstration \u2014 tu es ",
+            "Mode d\u00E9monstration \u2014 vous \u00EAtes ",
             React.createElement("strong", null, profil.nom),
             " (",
             profil.role,
-            "). D\u00E9monstration publique partag\u00E9e : ne saisis aucune donn\u00E9e r\u00E9elle (noms d\u2019\u00E9l\u00E8ves, de parents, t\u00E9l\u00E9phones). Tout est effac\u00E9 chaque nuit \u2014 pour g\u00E9rer ta propre \u00E9cole, contacte CERES. ", React.createElement("a", { href: "/demander-etablissement.html", className: "underline", style: { fontWeight: 600 } }, "Demander un abonnement pour mon \u00E9cole"))) : (React.createElement(Banner, { tone: "info" },
+            "). D\u00E9monstration publique partag\u00E9e : ne saisissez aucune donn\u00E9e r\u00E9elle (noms d\u2019\u00E9l\u00E8ves, de parents, t\u00E9l\u00E9phones). Tout est effac\u00E9 chaque nuit \u2014 pour g\u00E9rer votre propre \u00E9cole, contactez CERES. ", React.createElement("a", { href: "/demander-etablissement.html", className: "underline", style: { fontWeight: 600 } }, "Demander un abonnement pour mon \u00E9cole"))) : (React.createElement(Banner, { tone: "info" },
             "Connect\u00E9 en tant que ",
             React.createElement("strong", null, profil.email),
             " \u2014 profil ",
