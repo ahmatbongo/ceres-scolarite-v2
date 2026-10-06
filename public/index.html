@@ -8902,7 +8902,7 @@ const ACCES_ONGLETS = {
 /* ------------------------------------------------------------------ */
 /* Administration CERES — créer des établissements, pas leurs données */
 /* ------------------------------------------------------------------ */
-const FORMULES = ["Pilote annuel", "Essentiel annuel", "Pro annuel"];
+const FORMULES = ["Pilote annuel", "Essentiel annuel"];
 const STATUTS_ABONNEMENT = ["Actif", "Délai de grâce", "Suspendu", "Résilié"];
 /* ------------------------------------------------------------------ */
 /* Demandes d'abonnement reçues par le formulaire public              */
@@ -9239,16 +9239,25 @@ function AdministrationCeresTab({ moi }) {
         try {
             const r = await sb(`paiements_abonnement?etablissement_id=eq.${id}&select=*&order=date_paiement.desc,cree_le.desc`);
             setHistoriques((h) => ({ ...h, [id]: r }));
+            return r;
         }
-        catch (err) { setErreur(String((err === null || err === void 0 ? void 0 : err.message) || err)); }
+        catch (err) { setErreur(String((err === null || err === void 0 ? void 0 : err.message) || err)); return null; }
     };
+    // Règle commerciale : le Pilote ne vaut que pour la première année ; dès le deuxième paiement, l'école passe à Essentiel.
+    const formuleDuProchainPaiement = (e) => ((historiques[e.id] || []).length > 0 && e.formule === "Pilote annuel" ? "Essentiel annuel" : e.formule);
     const ouvrirPaiement = (e) => {
         if (paiementOuvert === e.id) return setPaiementOuvert(null);
         const p = prixFormule(e.formule);
         setErreur("");
         setPaiementForm({ date: todayISO(), montant: p ? String(p.annuelTtc) : "", mode: "Virement", reference: "", note: "" });
         setPaiementOuvert(e.id);
-        chargerHistorique(e.id);
+        const montantInitial = p ? String(p.annuelTtc) : "";
+        chargerHistorique(e.id).then((r) => {
+            if (r && r.length > 0 && e.formule === "Pilote annuel") {
+                const q = prixFormule("Essentiel annuel");
+                if (q) setPaiementForm((f) => (f.montant === montantInitial ? { ...f, montant: String(q.annuelTtc) } : f));
+            }
+        });
     };
     const enregistrerPaiement = async (e) => {
         setErreur("");
@@ -9267,10 +9276,12 @@ function AdministrationCeresTab({ moi }) {
         finally { setEnPaiement(false); }
     };
     const panneauPaiement = (e) => {
-        const p = prixFormule(e.formule);
+        const formulePayee = formuleDuProchainPaiement(e);
+        const renouvellementEssentiel = formulePayee !== e.formule;
+        const p = prixFormule(formulePayee);
         const histo = historiques[e.id];
         return React.createElement("div", { className: "mt-3 border-t pt-3", style: { borderColor: C.border } },
-            React.createElement("div", { className: "mb-2 text-sm", style: { color: C.muted } }, p ? `Formule ${e.formule} : ${formatFCFA(p.annuelTtc)} TTC par an, payé en une seule fois.` : "Aucune formule définie pour cette école : indiquez le montant reçu."),
+            React.createElement("div", { className: "mb-2 text-sm", style: { color: C.muted } }, p ? `Formule ${formulePayee} : ${formatFCFA(p.annuelTtc)} TTC par an, payé en une seule fois.${renouvellementEssentiel ? " Deuxième année : le passage du Pilote à l'Essentiel est obligatoire (article 4.2 du contrat) ; la formule de l'école sera mise à jour à l'enregistrement." : ""}` : "Aucune formule définie pour cette école : indiquez le montant reçu."),
             React.createElement("div", { className: "grid gap-2 sm:grid-cols-4 sm:items-end" },
                 React.createElement(Field, { label: "Date de réception" },
                     React.createElement(ChampDateFR, { style: inputStyle, max: todayISO(), value: paiementForm.date, onChange: (v) => setPaiementForm({ ...paiementForm, date: v.target.value }) })),
