@@ -86,6 +86,7 @@ const FONT_IMPORT = `
 .ceres-tabstrip::-webkit-scrollbar-thumb { background: #cbbf9e; border-radius: 4px; }
 
 html, body, #root { max-width: 100%; overflow-x: hidden; }
+.grid:not([class*="grid-cols"]) { grid-template-columns: minmax(0, 1fr); }
 .grid > * { min-width: 0; }
 .ceres-table-wrap { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -2px; }
 .ceres-table-wrap table { min-width: 460px; }
@@ -4678,7 +4679,7 @@ function BordereauCaissiers({ data, moi, role }) {
                     ? h("div", { className: "grid gap-2 sm:grid-cols-4" }, ...MODES_BORDEREAU.map((mode) => h("div", { key: mode }, h("div", { className: "text-xs", style: { color: C.muted } }, mode), h(Money, null, bordereau.constateParMode[mode]))) )
                     : h(Banner, { tone: "info" }, "Aucun montant compté n’est encore enregistré pour cette journée."),
                 h("div", { className: "mt-4 grid gap-3 sm:grid-cols-3" },
-                    h("div", null, h("div", { className: "text-xs", style: { color: C.muted } }, "Constaté global"), h(Money, null, bordereau.constateGlobal)),
+                    h("div", null, h("div", { className: "text-xs", style: { color: C.muted } }, "Compté global"), h(Money, null, bordereau.constateGlobal)),
                     h("div", null, h("div", { className: "text-xs", style: { color: C.muted } }, "Théorique global"), h(Money, null, bordereau.totalJournee)),
                     h("div", null, h("div", { className: "text-xs", style: { color: C.muted } }, "Écart global"), h(Money, { tone: bordereau.ecartGlobal === 0 ? C.success : C.danger }, bordereau.ecartGlobal))))));
 }
@@ -10659,6 +10660,18 @@ function PageVerificationRecu({ jeton }) {
         React.createElement("img", { src: LOGO_CERES_SARL, alt: "CERES SARL", style: { display: "block", margin: "0 auto 12px", width: 180, maxWidth: "70%", height: "auto" } }),
         React.createElement("div", { style: { textAlign: "center", fontWeight: 600, marginBottom: 10 } }, "Vérification d'un reçu"),
         React.createElement("div", { style: carte }, contenu));
+}
+
+if (new URLSearchParams(window.location.search).get("diag") === "1") {
+    const boite = document.createElement("div");
+    boite.style.cssText = "position:fixed;left:0;right:0;top:0;z-index:99999;background:#fff;color:#900;font:11px monospace;padding:4px;max-height:40vh;overflow:auto;border-bottom:2px solid #900;white-space:pre-wrap;word-break:break-all";
+    document.body.appendChild(boite);
+    const clippe = (el) => { for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) { const o = getComputedStyle(a).overflowX; if (o === "auto" || o === "scroll" || o === "hidden") { if (a.id !== "root") return true; } } return false; };
+    setInterval(() => {
+        const W = window.innerWidth; const res = [];
+        document.querySelectorAll("#root *").forEach((e) => { const r = e.getBoundingClientRect(); if (r.width > 0 && r.right > W + 1 && !clippe(e)) res.push(e.tagName + "." + String(e.className).slice(0, 40) + " g" + Math.round(r.left) + " d" + Math.round(r.right) + " l" + Math.round(r.width)); });
+        boite.textContent = "DIAG largeur=" + W + " document=" + document.documentElement.scrollWidth + " elements=" + res.length + "\n" + res.slice(0, 14).join("\n");
+    }, 1500);
 }
 const racine = ReactDOM.createRoot(document.getElementById("root"));
 const jetonVerifUrl = new URLSearchParams(window.location.search).get("verif");
