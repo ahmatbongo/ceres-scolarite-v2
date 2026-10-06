@@ -9087,11 +9087,17 @@ function AdministrationCeresTab({ moi }) {
     const [modifEnCours, setModifEnCours] = useState(null); // id de l'établissement en cours de modification
     const [directions, setDirections] = useState([]);
     const [masquerTests, setMasquerTests] = useState(true);
+    const [formules, setFormules] = useState([]);
+    const [paiementOuvert, setPaiementOuvert] = useState(null);
+    const [paiementForm, setPaiementForm] = useState({ date: "", montant: "", mode: "Virement", reference: "", note: "" });
+    const [historiques, setHistoriques] = useState({});
+    const [enPaiement, setEnPaiement] = useState(false);
     const charger = useCallback(async () => {
         setChargement(true);
         try {
             const r = await sb("etablissements?type=eq.commercial&select=*&order=cree_le.asc");
             setEtablissements(r.map((e) => versObjetJs("etablissements", e)));
+            try { setFormules(await sb("formules_abonnement?select=*&order=ordre.asc")); } catch (_) { setFormules([]); }
             try {
                 const d = await sb("utilisateurs?role=eq.Direction&actif=eq.true&select=etablissement_id,nom,email");
                 setDirections(d.map((x) => versObjetJs("utilisateurs", x)));
@@ -9114,6 +9120,9 @@ function AdministrationCeresTab({ moi }) {
         setErreur("");
         if (!form.nomEtablissement.trim() || !form.nomDirection.trim() || !form.emailDirection.includes("@")) {
             return setErreur("Le nom de l'établissement, le nom et l'e-mail de sa Direction sont obligatoires.");
+        }
+        if (!form.dateEcheance) {
+            return setErreur("La date limite de paiement est obligatoire : sans elle, l'école ne serait jamais bloquée en cas d'impayé.");
         }
         setEnvoi(true);
         try {
@@ -9144,7 +9153,7 @@ function AdministrationCeresTab({ moi }) {
                     actif: true,
                 },
             ]);
-            setForm({ nomEtablissement: "", nomDirection: "", emailDirection: "", formule: "Pilote annuel", tarifFcfa: "", dateEcheance: "" });
+            setForm({ nomEtablissement: "", nomDirection: "", emailDirection: "", formule: "Pilote annuel", tarifFcfa: String((prixFormule("Pilote annuel") || {}).mensuel || ""), dateEcheance: dansJours(15) });
             await charger();
         }
         catch (e) {
@@ -9213,6 +9222,77 @@ function AdministrationCeresTab({ moi }) {
             + `\n\nNous restons à votre disposition pour toute information complémentaire.\n\nCordialement,\nCERES SARL`;
         return `mailto:${dest}?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`;
     };
+    const dansJours = (n) => { const d = new Date(todayISO() + "T12:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+    const prixFormule = (nom) => {
+        const f = (formules || []).find((x) => x.nom === nom);
+        if (!f) return null;
+        const mensuel = Number(f.prix_mensuel_ht) || 0;
+        const tva = Number(f.tva_pct) || 0;
+        const annuelHt = mensuel * 12;
+        return { mensuel, annuelHt, annuelTtc: Math.round(annuelHt * (1 + tva / 100)) };
+    };
+    const changerFormule = (nom) => { const p = prixFormule(nom); setForm({ ...form, formule: nom, tarifFcfa: p ? String(p.mensuel) : form.tarifFcfa }); };
+    useEffect(() => {
+        setForm((f) => { const p = prixFormule(f.formule); return { ...f, tarifFcfa: f.tarifFcfa === "" && p ? String(p.mensuel) : f.tarifFcfa, dateEcheance: f.dateEcheance || dansJours(15) }; });
+    }, [formules]);
+    const chargerHistorique = async (id) => {
+        try {
+            const r = await sb(`paiements_abonnement?etablissement_id=eq.${id}&select=*&order=date_paiement.desc,cree_le.desc`);
+            setHistoriques((h) => ({ ...h, [id]: r }));
+        }
+        catch (err) { setErreur(String((err === null || err === void 0 ? void 0 : err.message) || err)); }
+    };
+    const ouvrirPaiement = (e) => {
+        if (paiementOuvert === e.id) return setPaiementOuvert(null);
+        const p = prixFormule(e.formule);
+        setErreur("");
+        setPaiementForm({ date: todayISO(), montant: p ? String(p.annuelTtc) : "", mode: "Virement", reference: "", note: "" });
+        setPaiementOuvert(e.id);
+        chargerHistorique(e.id);
+    };
+    const enregistrerPaiement = async (e) => {
+        setErreur("");
+        const montant = Number(String(paiementForm.montant).replace(/\D/g, ""));
+        if (!paiementForm.date) return setErreur("Indiquez la date de réception du paiement.");
+        if (!(montant > 0)) return setErreur("Indiquez le montant reçu.");
+        if (!window.confirm(`Enregistrer le paiement de ${formatFCFA(montant)} reçu le ${formatDateFR(paiementForm.date)} pour « ${e.nom} » ?\n\nL'abonnement sera prolongé de 12 mois. Ce paiement ne pourra plus être modifié ni supprimé.`))
+            return;
+        setEnPaiement(true);
+        try {
+            await appelerRpc("enregistrer_paiement_abonnement", { p_etablissement_id: e.id, p_date_paiement: paiementForm.date, p_montant_ttc: montant, p_mode: paiementForm.mode, p_reference: paiementForm.reference.trim() || null, p_note: paiementForm.note.trim() || null });
+            await chargerHistorique(e.id);
+            await charger();
+        }
+        catch (err) { setErreur(String((err === null || err === void 0 ? void 0 : err.message) || err)); }
+        finally { setEnPaiement(false); }
+    };
+    const panneauPaiement = (e) => {
+        const p = prixFormule(e.formule);
+        const histo = historiques[e.id];
+        return React.createElement("div", { className: "mt-3 border-t pt-3", style: { borderColor: C.border } },
+            React.createElement("div", { className: "mb-2 text-sm", style: { color: C.muted } }, p ? `Formule ${e.formule} : ${formatFCFA(p.annuelTtc)} TTC par an, payé en une seule fois.` : "Aucune formule définie pour cette école : indiquez le montant reçu."),
+            React.createElement("div", { className: "grid gap-2 sm:grid-cols-4 sm:items-end" },
+                React.createElement(Field, { label: "Date de réception" },
+                    React.createElement(ChampDateFR, { style: inputStyle, max: todayISO(), value: paiementForm.date, onChange: (v) => setPaiementForm({ ...paiementForm, date: v.target.value }) })),
+                React.createElement(Field, { label: "Montant reçu TTC (FCFA)" },
+                    React.createElement("input", { style: inputStyle, type: "number", onWheel: bloquerMolette, min: "0", value: paiementForm.montant, onChange: (v) => setPaiementForm({ ...paiementForm, montant: v.target.value }) })),
+                React.createElement(Field, { label: "Mode de paiement" },
+                    React.createElement("select", { style: inputStyle, value: paiementForm.mode, onChange: (v) => setPaiementForm({ ...paiementForm, mode: v.target.value }) }, ["Virement", "Chèque", "Espèces", "Autre"].map((m) => React.createElement("option", { key: m }, m)))),
+                React.createElement(Field, { label: "Référence (n° de virement, de chèque…)" },
+                    React.createElement("input", { style: inputStyle, maxLength: 120, value: paiementForm.reference, onChange: (v) => setPaiementForm({ ...paiementForm, reference: v.target.value }) }))),
+            React.createElement("div", { className: "mt-2" },
+                React.createElement(Field, { label: "Note (facultatif)" },
+                    React.createElement("input", { style: inputStyle, maxLength: 300, value: paiementForm.note, onChange: (v) => setPaiementForm({ ...paiementForm, note: v.target.value }) }))),
+            React.createElement("div", { className: "mt-3" },
+                React.createElement(PrimaryButton, { onClick: () => enregistrerPaiement(e), disabled: enPaiement, icon: React.createElement(CheckCircle2, { size: 16 }) }, "Enregistrer le paiement")),
+            erreur && React.createElement("div", { className: "mt-3" }, React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)),
+            histo && React.createElement("div", { className: "mt-3 text-sm" },
+                React.createElement("div", { style: { fontWeight: 600, color: C.ink } }, "Paiements enregistrés"),
+                histo.length === 0
+                    ? React.createElement("div", { style: { color: C.muted } }, "Aucun paiement enregistré pour cette école.")
+                    : histo.map((h) => React.createElement("div", { key: h.id, className: "border-t py-1", style: { borderColor: C.border, color: C.ink } },
+                        `${formatDateFR(h.date_paiement)} · ${formatFCFA(h.montant_ttc)} · ${h.mode}${h.reference ? ` · réf. ${h.reference}` : ""} · échéance portée au ${formatDateFR(h.echeance_apres)}${h.note ? ` · ${h.note}` : ""}`))));
+    };
     const passerEnGrace = async (e) => {
         if (!window.confirm(`Passer « ${e.nom} » en délai de grâce ? Les écritures (encaissements, inscriptions) seront bloquées pour cette école jusqu'à régularisation.`))
             return;
@@ -9246,10 +9326,10 @@ function AdministrationCeresTab({ moi }) {
                 React.createElement(Field, { label: "E-mail de la Direction" },
                     React.createElement("input", { style: inputStyle, type: "email", value: form.emailDirection, onChange: (e) => setForm({ ...form, emailDirection: e.target.value }) })),
                 React.createElement(Field, { label: "Formule" },
-                    React.createElement("select", { style: inputStyle, value: form.formule, onChange: (e) => setForm({ ...form, formule: e.target.value }) }, FORMULES.map((f) => (React.createElement("option", { key: f }, f))))),
-                React.createElement(Field, { label: "Tarif (FCFA / mois, optionnel)" },
+                    React.createElement("select", { style: inputStyle, value: form.formule, onChange: (e) => changerFormule(e.target.value) }, FORMULES.map((f) => (React.createElement("option", { key: f }, f))))),
+                React.createElement(Field, { label: "Tarif mensuel HT (FCFA)" },
                     React.createElement("input", { style: inputStyle, type: "number", onWheel: bloquerMolette, value: form.tarifFcfa, onChange: (e) => setForm({ ...form, tarifFcfa: e.target.value }) })),
-                React.createElement(Field, { label: "\u00C9ch\u00E9ance de l'abonnement (optionnel)" },
+                React.createElement(Field, { label: "Date limite de paiement (15 jours par d\u00E9faut)" },
                     React.createElement(ChampDateFR, { style: inputStyle, value: form.dateEcheance, onChange: (e) => setForm({ ...form, dateEcheance: e.target.value }) }))),
             React.createElement("div", { className: "mt-3" },
                 React.createElement(PrimaryButton, { onClick: creer, disabled: envoi, icon: React.createElement(Plus, { size: 16 }) }, "Cr\u00E9er l'\u00E9cole")),
@@ -9279,7 +9359,9 @@ function AdministrationCeresTab({ moi }) {
                         React.createElement("span", { className: "rounded-full px-2 py-0.5 text-xs", style: { background: couleurs.bg, color: couleurs.fg } }, e.statutAbonnement),
                         (e.dateEcheance && joursAvantEcheance(e.dateEcheance) <= 30) && React.createElement("a", { href: lienRappel(e), className: "ceres-tapline text-xs", style: { color: C.navy, fontWeight: 600 } }, emailsDirection(e).length ? "Envoyer un rappel" : "Rédiger un rappel"),
                         (e.statutAbonnement === "Actif" && e.dateEcheance && joursAvantEcheance(e.dateEcheance) < 0) && React.createElement(GhostButton, { onClick: () => passerEnGrace(e), tone: C.danger }, "Passer en délai de grâce"),
+                        e.statutAbonnement !== "Résilié" && React.createElement(GhostButton, { onClick: () => ouvrirPaiement(e) }, paiementOuvert === e.id ? "Fermer le paiement" : "Enregistrer un paiement"),
                         React.createElement(GhostButton, { onClick: () => setModifEnCours(enModif ? null : e.id) }, enModif ? "Fermer" : "Modifier l'abonnement"))),
+                paiementOuvert === e.id && panneauPaiement(e),
                 enModif && (React.createElement("div", { className: "mt-3 grid gap-2 border-t pt-3 sm:grid-cols-4 sm:items-end", style: { borderColor: C.border } },
                     React.createElement(Field, { label: "Formule" },
                         React.createElement("select", { style: inputStyle, value: e.formule || FORMULES[0], onChange: (v) => setEtablissements((liste) => liste.map((x) => (x.id === e.id ? { ...x, formule: v.target.value } : x))) }, FORMULES.map((f) => (React.createElement("option", { key: f }, f))))),
