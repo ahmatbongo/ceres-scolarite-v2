@@ -213,6 +213,16 @@ async function sbAuth(path, options = {}) {
     const texte = await res.text();
     const corps = texte ? JSON.parse(texte) : null;
     if (!res.ok) {
+        try { console.error("Erreur authentification", path.split("?")[0], res.status, corps); } catch (_) {}
+        const brut = String((corps && (corps.error_description || corps.msg || corps.message)) || "");
+        if (/rate limit|too many|over_email_send_rate_limit|only request this after/i.test(brut) || res.status === 429)
+            throw new Error("Trop de demandes en peu de temps. Patientez une minute, puis réessayez.");
+        if (/sending .*email|smtp|unexpected_failure/i.test(brut) || res.status >= 500)
+            throw new Error("Le lien de connexion n'a pas pu être envoyé. Réessayez dans un instant ; si le problème persiste, contactez CERES.");
+        if (/invalid.*email|email.*invalid|unable to validate email/i.test(brut))
+            throw new Error("Cette adresse e-mail n'est pas valide. Vérifiez-la et réessayez.");
+        if (/expired|invalid|not found|refresh.?token/i.test(brut))
+            throw new Error("Votre session a expiré. Reconnectez-vous.");
         throw new Error((corps === null || corps === void 0 ? void 0 : corps.error_description) || (corps === null || corps === void 0 ? void 0 : corps.msg) || (corps === null || corps === void 0 ? void 0 : corps.message) || `Erreur d'authentification (${res.status})`);
     }
     return corps;
@@ -5482,7 +5492,10 @@ function anneeSuivante(annee) {
 function messageReprise(e) {
     const brut = String((e && e.message) || e || "");
     const m = /"message"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(brut);
-    return m ? m[1].replace(/\\"/g, '"') : brut;
+    const texte = m ? m[1].replace(/\\"/g, '"') : brut;
+    if (/annuler ce lot en bloc/i.test(texte))
+        return "Ce lot ne peut pas être annulé en une seule fois, car au moins un élève a déjà payé sur ces tranches. Corrigez les montants élève par élève, depuis le dossier de chaque élève.";
+    return texte;
 }
 function RepriseSoldesTab({ data, moi, rafraichirDonnees }) {
     const h = React.createElement;
@@ -10028,7 +10041,7 @@ function LoginScreen({ onDemarrerDemo }) {
             React.createElement(Card, null, !envoye ? (React.createElement(React.Fragment, null,
                 React.createElement("p", { className: "mb-3 text-sm", style: { color: C.muted } }, "Aucun mot de passe \u00E0 retenir. Saisissez votre adresse e-mail : vous recevrez un lien de connexion."),
                 React.createElement(Field, { label: "Adresse e-mail" },
-                    React.createElement("input", { style: inputStyle, type: "email", value: email, onChange: (e) => setEmail(e.target.value), placeholder: "toi@exemple.com", onKeyDown: (e) => e.key === "Enter" && envoyer() })),
+                    React.createElement("input", { style: inputStyle, type: "email", value: email, onChange: (e) => setEmail(e.target.value), placeholder: "votre.adresse@exemple.com", onKeyDown: (e) => e.key === "Enter" && envoyer() })),
                 React.createElement("div", { className: "mt-3" },
                     React.createElement(PrimaryButton, { onClick: envoyer, disabled: envoi }, envoi ? "Envoi..." : "Envoyer le lien de connexion")),
                 erreur && (React.createElement("div", { className: "mt-3" },
