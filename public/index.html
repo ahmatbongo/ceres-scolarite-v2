@@ -838,7 +838,17 @@ function statutPromesse(promesse, data) {
 /* ------------------------------------------------------------------ */
 /* Petits composants d'interface réutilisables                        */
 /* ------------------------------------------------------------------ */
-function Banner({ tone = "info", children, icon }) {
+function Banner({ tone = "info", children, icon, defiler }) {
+    const refBandeau = useRef(null);
+    useEffect(() => {
+        // Sur téléphone, un message affiché hors de l'écran passe inaperçu : on le ramène à la vue.
+        if (!defiler || !refBandeau.current) return;
+        try {
+            const r = refBandeau.current.getBoundingClientRect();
+            const h = window.innerHeight || document.documentElement.clientHeight;
+            if (r.top < 70 || r.bottom > h - 20) refBandeau.current.scrollIntoView({ behavior: "smooth", block: "center" });
+        } catch (e) { }
+    }, [defiler, children]);
     const tones = {
         info: { bg: "#eef3f6", fg: C.navy, border: "#d6e2e9" },
         warn: { bg: C.warnBg, fg: C.warn, border: "#ecd9ae" },
@@ -846,7 +856,7 @@ function Banner({ tone = "info", children, icon }) {
         success: { bg: C.successBg, fg: C.success, border: "#cfe3d2" },
     };
     const t = tones[tone];
-    return (React.createElement("div", { className: "flex items-start gap-2 rounded-lg px-3 py-2 text-sm", style: { background: t.bg, color: t.fg, border: `1px solid ${t.border}` } },
+    return (React.createElement("div", { ref: refBandeau, className: "flex items-start gap-2 rounded-lg px-3 py-2 text-sm", style: { background: t.bg, color: t.fg, border: `1px solid ${t.border}` } },
         icon,
         React.createElement("div", null, children)));
 }
@@ -1146,7 +1156,7 @@ function ClassesTab({ data, setData, role, moi, rafraichirDonnees }) {
                 React.createElement("div", { className: "flex items-end" },
                     React.createElement(PrimaryButton, { onClick: creerClasse, disabled: role !== "Direction", icon: React.createElement(Plus, { size: 16 }) }, "Cr\u00E9er la classe"))),
             erreur && !openClasseId && (React.createElement("div", { className: "mt-3" },
-                React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))),
+                React.createElement(Banner, { defiler: true, tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))),
         React.createElement("div", { className: "space-y-3" },
             data.classes.length === 0 && (React.createElement(Banner, { tone: "info" }, "Aucune classe pour l'instant. Cr\u00E9ez-en une ci-dessus pour commencer.")),
             data.classes.map((cls) => {
@@ -1283,7 +1293,7 @@ function ClassesTab({ data, setData, role, moi, rafraichirDonnees }) {
                                 React.createElement(ChampDateFR, { style: inputStyle, value: autreFrais.dateEcheance, onChange: (e) => setAutreFrais({ ...autreFrais, dateEcheance: e.target.value }) })),
                             React.createElement(PrimaryButton, { onClick: () => ajouterAutreFrais(cls.id), icon: React.createElement(Plus, { size: 16 }) }, "Ajouter"))),
                         erreur && openClasseId === cls.id && (React.createElement("div", { className: "mt-3" },
-                            React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))))));
+                            React.createElement(Banner, { defiler: true, tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))))));
             }))));
 }
 /* ------------------------------------------------------------------ */
@@ -1377,8 +1387,8 @@ function FraisOptionnelsP139({ eleve, data, moi, rafraichirDonnees }) {
     return React.createElement("section", { className: "my-4 border-t pt-3", style: { borderColor: C.border }, "aria-label": "Frais optionnels" },
         React.createElement("h3", { className: "font-medium mb-2" }, "Frais optionnels"),
         React.createElement("p", { className: "text-sm mb-3", style: { color: C.muted } }, "Ces frais ne s'appliquent que si l'élève y est explicitement souscrit — jamais automatiquement à toute la classe."),
-        erreur && React.createElement("div", { role: "alert", className: "mb-2" }, React.createElement(Banner, { tone: "danger" }, erreur)),
-        message && React.createElement("div", { role: "status", className: "mb-2" }, React.createElement(Banner, { tone: "success" }, message)),
+        erreur && React.createElement("div", { role: "alert", className: "mb-2" }, React.createElement(Banner, { defiler: true, tone: "danger" }, erreur)),
+        message && React.createElement("div", { role: "status", className: "mb-2" }, React.createElement(Banner, { defiler: true, tone: "success" }, message)),
         lectureRequise && React.createElement(GhostButton, { onClick: recharger, disabled: enCours }, "Recharger les données"),
         frais.length === 0 && React.createElement("p", { className: "text-sm", style: { color: C.muted } }, "Aucun frais optionnel dans la classe actuelle."),
         frais.map((f) => {
@@ -1489,7 +1499,7 @@ function TransfertP139({ eleve, data, moi, rafraichirDonnees }) {
                 solde > 0 ? `Solde exigible : ${formatFCFA(solde)}. Une dérogation de la Direction est nécessaire pour transférer cet élève.` : "Aucun solde exigible lors du dernier contrôle.",
                 " Les échéances futures ne sont pas comprises dans ce contrôle."),
         !lecture && React.createElement(GhostButton, { onClick: lireSolde, disabled: occupe || lectureRequise }, "Actualiser le solde"),
-        erreur && React.createElement("div", { role: "alert", className: "my-2" }, React.createElement(Banner, { tone: "danger" }, erreur)),
+        erreur && React.createElement("div", { role: "alert", className: "my-2" }, React.createElement(Banner, { defiler: true, tone: "danger" }, erreur)),
         succes && React.createElement("div", { role: "status" }, React.createElement(Banner, { tone: "success" }, succes)),
         React.createElement("div", { className: "grid gap-2 sm:grid-cols-3 sm:items-end mt-2" },
             React.createElement(Field, { label: "Nouvelle classe" }, React.createElement("select", { style: inputStyle, value: classeId, disabled: occupe || !!demande || lectureRequise || !!succes, onChange: (e) => setClasseId(e.target.value) },
@@ -1559,8 +1569,8 @@ function ReprisePassageP139({ initial, contexte, moi, rafraichirDonnees }) {
     return React.createElement("section", { className: "my-3 border rounded p-3", style: { borderColor: C.border }, "aria-label": "Élèves bloqués au passage annuel" },
         React.createElement("h3", { className: "font-medium" }, `Blocages pour solde : ${resultat.bloquesPourSolde || 0}`),
         React.createElement("p", { className: "text-sm", style: { color: C.muted } }, `Lot initial : ${contexte.source} → ${contexte.cible}. Les destinations initialement choisies sont conservées.`),
-        erreur && React.createElement("div", { role: "alert", className: "my-2" }, React.createElement(Banner, { tone: "danger" }, erreur)),
-        message && React.createElement("div", { role: "status", className: "my-2" }, React.createElement(Banner, { tone: "info" }, message)),
+        erreur && React.createElement("div", { role: "alert", className: "my-2" }, React.createElement(Banner, { defiler: true, tone: "danger" }, erreur)),
+        message && React.createElement("div", { role: "status", className: "my-2" }, React.createElement(Banner, { defiler: true, tone: "info" }, message)),
         lectureRequise && React.createElement(GhostButton, { onClick: recharger, disabled: occupe }, "Recharger les données"),
         (resultat.bloquesPourSolde || 0) > 0 && !bloques.length && React.createElement(Banner, { tone: "warn" }, "Le détail des élèves bloqués n'est pas disponible. Rechargez la page puis réessayez."),
         bloques.map((b) => React.createElement("div", { key: b.eleve_id, className: "border-t mt-2 pt-2", style: { borderColor: C.border } },
@@ -1840,7 +1850,7 @@ function ElevesTab({ data, setData, moi, rafraichirDonnees }) {
                         React.createElement("button", { className: "underline font-medium", onClick: () => inscrire(true) }, "Inscrire quand m\u00eame"))),
                     React.createElement("div", null,
                         React.createElement(PrimaryButton, { onClick: () => inscrire(false), disabled: envoi || !peutInscrire, icon: React.createElement(Plus, { size: 16 }) }, "Inscrire l'\u00E9l\u00E8ve")),
-                    erreur && (React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))),
+                    erreur && (React.createElement(Banner, { defiler: true, tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))),
             React.createElement("div", { className: "space-y-2" },
                 data.eleves.length === 0 && React.createElement(Banner, { tone: "info" }, "Aucun \u00E9l\u00E8ve inscrit pour l'instant."),
                 data.eleves.length > 0 && React.createElement(ChampRecherche, { valeur: rechercheEleve, onChange: setRechercheEleve, placeholder: "Rechercher un \u00E9l\u00E8ve (nom, pr\u00E9nom, matricule, classe\u2026)" }),
@@ -1894,7 +1904,7 @@ function ElevesTab({ data, setData, moi, rafraichirDonnees }) {
                         React.createElement(GhostButton, { disabled: !peutModifierCoordonnees || envoiCoordonnees, onClick: () => modifierCoordonnees(eleveSelectionne.id) }, envoiCoordonnees ? "Enregistrement…" : "Enregistrer")),
                     React.createElement("div", { className: "mt-2 text-xs", style: { color: C.muted } }, "Aucun motif obligatoire pour ce changement ; l’ancienne valeur, la nouvelle valeur, l’auteur et la date/heure sont conservés."),
                     erreur && React.createElement("div", { className: "mt-2" },
-                        React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur))),
+                        React.createElement(Banner, { defiler: true, tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur))),
                 React.createElement("div", { className: "mb-3 border-b pb-3", style: { borderColor: C.border } },
                     React.createElement("div", { className: "mb-1 text-xs font-medium uppercase tracking-wide", style: { color: C.muted } }, "Historique des coordonnées"),
                     (() => {
@@ -2088,7 +2098,7 @@ function ElevesTab({ data, setData, moi, rafraichirDonnees }) {
                                 React.createElement(GhostButton, { disabled: envoiApplicationAvoir, onClick: appliquerAvoirFn }, "Appliquer")))));
                     })(),
                     erreur && selectedId && (React.createElement("div", { className: "mt-2" },
-                        React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))))))));
+                        React.createElement(Banner, { defiler: true, tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))))))));
 }
 /* ------------------------------------------------------------------ */
 /* Reçu imprimable / PDF (P149) — s'ouvre dans une fenêtre d'impression */
@@ -4882,7 +4892,7 @@ function AlerteCaisseP126({ alerte, role, onOuvrirControle, onAccorderDerogation
                 h(PrimaryButton, { onClick: accorder, disabled: envoi || motif.trim().length < 10, icon: h(Check, { size: 14 }) }, envoi ? "Enregistrement…" : "Enregistrer la dérogation"),
                 h(GhostButton, { onClick: () => { setFormulaireOuvert(false); setMotif(""); setErreur(""); }, disabled: envoi }, "Annuler")),
             erreur && h("div", { className: "mt-2" },
-                h(Banner, { tone: "danger", icon: h(AlertTriangle, { size: 14 }) }, erreur)))
+                h(Banner, { defiler: true, tone: "danger", icon: h(AlertTriangle, { size: 14 }) }, erreur)))
         : null;
     const succes = alerte.derogationActive
         ? h("div", { className: "mt-3" },
@@ -5084,7 +5094,7 @@ function EncaissementTab({ data, moi, role, blocageCaisse, cloturesVerrouillees,
                                 "Tout le reste d\u00FB (",
                                 formatFCFA(totalRestant),
                                 ")")))),
-                    erreur && (React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur))))),
+                    erreur && (React.createElement(Banner, { defiler: true, tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur))))),
         React.createElement("div", null,
             React.createElement(SectionTitle, { sub: "Contr\u00F4lez le re\u00E7u avant de le remettre." }, "Dernier re\u00E7u"),
             !dernierRecu && React.createElement(Banner, { tone: "info" }, "Le re\u00E7u appara\u00EEtra ici apr\u00E8s un encaissement."),
@@ -5286,7 +5296,7 @@ function CorrectionsTab({ data, moi, rafraichirDonnees }) {
                         React.createElement(PrimaryButton, { onClick: soumettre, disabled: envoi, icon: React.createElement(Plus, { size: 16 }) },
                             "Enregistrer ",
                             type.toLowerCase())),
-                    erreur && (React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))),
+                    erreur && (React.createElement(Banner, { defiler: true, tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))),
             (moi === null || moi === void 0 ? void 0 : moi.role) === "Direction" && enAttente.length > 0 && (React.createElement("div", { className: "mt-4" },
                 React.createElement(SectionTitle, null, "En attente de votre validation"),
                 React.createElement("div", { className: "space-y-2" }, enAttente.map((c) => {
@@ -5559,7 +5569,7 @@ function ImportTab({ data, moi, rafraichirDonnees }) {
             classeId && !grilleDefinie && (React.createElement("div", { className: "mt-3" },
                 React.createElement(Banner, { tone: "warn", icon: React.createElement(AlertTriangle, { size: 16 }) }, "Cette classe n'a aucune grille tarifaire d\u00e9finie \u2014 d\u00e9finis-la d'abord dans \u00ab Classes & grilles \u00bb avant d'importer."))),
             erreur && (React.createElement("div", { className: "mt-3" },
-                React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur))),
+                React.createElement(Banner, { defiler: true, tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur))),
             resultat && (React.createElement("div", { className: "mt-3" },
                 React.createElement(Banner, { tone: "success", icon: React.createElement(CheckCircle2, { size: 16 }) },
                     resultat.crees,
@@ -5693,6 +5703,7 @@ function RepriseSoldesTab({ data, moi, rafraichirDonnees }) {
         try {
             const res = await appelerRpc("reprendre_soldes", { p_lignes: lignes, p_motif: motif, p_justificatif: justificatif, p_confirmer: false, p_utilisateur_id: moi && moi.id });
             setApercu(res);
+            setTimeout(() => { try { const el = document.getElementById("ancre-apercu-reprise"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e2) { } }, 150);
         } catch (e) { setErreur(messageReprise(e)); }
         finally { setEnvoi(false); }
     };
@@ -5720,8 +5731,8 @@ function RepriseSoldesTab({ data, moi, rafraichirDonnees }) {
     const lots = [...(data.lotsReprise || [])].sort((a, b) => (a.creeLe < b.creeLe ? 1 : -1));
     return h("div", null,
         h(SectionTitle, { sub: "Pour une école qui démarre en cours d'année : saisissez, élève par élève, ce qui a déjà été versé avant le démarrage de l'application (reprise de soldes). Ces montants réduisent les soldes mais n'entrent jamais en caisse, en clôture ni en reçus." }, "Paiements antérieurs"),
-        erreur && h("div", { className: "mb-3" }, h(Banner, { tone: "danger", icon: h(AlertTriangle, { size: 16 }) }, erreur)),
-        message && h("div", { className: "mb-3" }, h(Banner, { tone: "success" }, message)),
+        erreur && h("div", { className: "mb-3" }, h(Banner, { defiler: true, tone: "danger", icon: h(AlertTriangle, { size: 16 }) }, erreur)),
+        message && h("div", { className: "mb-3" }, h(Banner, { defiler: true, tone: "success" }, message)),
         h(Card, { style: { marginBottom: 16 } },
             h(Field, { label: "Classe" },
                 h("select", { style: inputStyle, value: classeId, onChange: (e) => { setClasseId(e.target.value); setMontants({}); setApercu(null); setMessage(""); } },
@@ -5750,6 +5761,7 @@ function RepriseSoldesTab({ data, moi, rafraichirDonnees }) {
             eleves.length > 0 && h("div", { className: "mt-4 flex flex-wrap items-center gap-3" },
                 h(PrimaryButton, { onClick: previsualiser, disabled: envoi || lignes.length === 0 }, "Prévisualiser"),
                 h("span", { className: "text-sm", style: { color: C.muted } }, `${lignes.length} élève${lignes.length > 1 ? "s" : ""} · total ${fmt(total)}`))),
+        apercu && h("div", { id: "ancre-apercu-reprise", style: { scrollMarginTop: 70 } }),
         apercu && h(Card, { style: { marginBottom: 16 } },
             h("div", { className: "mb-2", style: { fontWeight: 600, color: C.ink } }, `Prévisualisation : ${apercu.nb_eleves} élève${apercu.nb_eleves > 1 ? "s" : ""} valides, total ${fmt(apercu.total)}`),
             apercu.nb_erreurs > 0 && h("div", { className: "mb-2" }, h(Banner, { tone: "danger" }, `${apercu.nb_erreurs} ligne${apercu.nb_erreurs > 1 ? "s" : ""} en erreur : corrigez-les avant de confirmer.`)),
@@ -5810,7 +5822,7 @@ function RepriseDossier({ eleve, data, moi, rafraichirDonnees }) {
             h("div", { className: "flex gap-2" },
                 h(PrimaryButton, { onClick: corriger, disabled: envoi || nouveau === "" || motif.trim().length < 5 }, "Enregistrer la correction"),
                 h(GhostButton, { onClick: () => setOuvert(false) }, "Renoncer"))),
-        erreur && h("div", { className: "mt-2" }, h(Banner, { tone: "danger" }, erreur)));
+        erreur && h("div", { className: "mt-2" }, h(Banner, { defiler: true, tone: "danger" }, erreur)));
 }
 function PassageAnnuelTab({ data, moi, rafraichirDonnees }) {
     const annees = [...new Set(data.classes.map((c) => c.annee).filter(Boolean))].sort();
@@ -5873,7 +5885,7 @@ function PassageAnnuelTab({ data, moi, rafraichirDonnees }) {
             classesCible.length === 0 && anneeCible.trim() && (React.createElement("div", { className: "mt-3" },
                 React.createElement(Banner, { tone: "warn", icon: React.createElement(AlertTriangle, { size: 16 }) }, "Aucune classe n'existe encore pour cette année d’arrivée \u2014 créez-les d’abord (avec leur grille) dans \u00ab Classes & grilles \u00bb."))),
             erreur && (React.createElement("div", { className: "mt-3" },
-                React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur))),
+                React.createElement(Banner, { defiler: true, tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur))),
             resultat && (React.createElement("div", { className: "mt-3" },
                 React.createElement(Banner, { tone: "success", icon: React.createElement(CheckCircle2, { size: 16 }) },
                     resultat.promus,
@@ -6273,7 +6285,7 @@ function RecouvrementTab({ data, moi, rafraichirDonnees, cibleInitiale, onCibleC
                                 React.createElement("div", { className: "text-xs", style: { color: C.muted } }, `Besoin d'accorder un délai officiel (report réel de l'échéance, pas juste une promesse) ? Utilisez « Exception d'échéance individuelle » dans le dossier de ${l.eleve.prenom} ${l.eleve.nom}, onglet Élèves — motif obligatoire, conservé dans l'historique.`))),
                         panneauSuivi(l),
                         erreur && (React.createElement("div", { className: "mt-3" },
-                            React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))))));
+                            React.createElement(Banner, { defiler: true, tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))))));
             })))));
 }
 /* ------------------------------------------------------------------ */
@@ -8065,7 +8077,7 @@ function RapprochementImportTab({ moi, data }) {
                                 React.createElement("td", { className: "py-1.5" }, detail.reference),
                                 React.createElement("td", { className: "py-1.5", style: { color: detail.motif === "déjà importée" ? C.warn : C.danger } }, detail.motif)))))))),
         erreur && React.createElement("div", { className: "mb-3" },
-            React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)),
+            React.createElement(Banner, { defiler: true, tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)),
         confirmation && React.createElement("div", { className: "mb-3" },
             React.createElement(Banner, { tone: "success", icon: React.createElement(CheckCircle2, { size: 16 }) }, confirmation)),
         chargement
@@ -8303,7 +8315,7 @@ function ClotureTab({ data, moi, dateInitiale, blocageCaisse, cloturesVerrouille
                 React.createElement(GhostButton, { onClick: reouvrir, disabled: envoi, icon: React.createElement(Unlock, { size: 14 }), tone: C.warn }, "R\u00E9ouverture exceptionnelle"))) : (React.createElement(Banner, { tone: "info" }, "Journ\u00E9e verrouill\u00E9e \u2014 seule la Direction peut la rouvrir exceptionnellement.")),
             !verrouillee && !peutVerrouiller && (React.createElement("p", { className: "mt-2 text-xs", style: { color: C.muted } }, "Ce profil peut saisir le montant compt\u00E9, mais seule la Direction peut valider et verrouiller la journ\u00E9e.")),
             erreur && (React.createElement("div", { className: "mt-3" },
-                React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))),
+                React.createElement(Banner, { defiler: true, tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))),
         peutMouvement && (React.createElement(Card, { style: { marginBottom: 16 } },
             React.createElement("div", { style: { fontWeight: 600, marginBottom: 8 } }, "Mouvement de caisse : fonds d'ouverture, sortie autoris\u00E9e, autre"),
             verrouillee && React.createElement("div", { className: "mb-2 text-xs", style: { color: C.muted } }, "Journ\u00E9e verrouill\u00E9e \u2014 rouvre-la exceptionnellement pour ajouter un mouvement."),
@@ -9043,6 +9055,47 @@ function BilanJourTab({ data, nomEtablissement }) {
                 h(PrimaryButton, { onClick: copier }, copie ? "Copié ✓" : "Copier le résumé"),
                 h(GhostButton, { onClick: () => window.open("https://wa.me/?text=" + encodeURIComponent(resume), "_blank", "noopener,noreferrer") }, "Envoyer par WhatsApp"))));
 }
+
+// Visite guidée de la démonstration : 7 étapes, panneau fixé en bas de l'écran (réductible).
+const ETAPES_VISITE = [
+    { titre: "Bienvenue", texte: "Vous êtes la Direction d'une école fictive. Vous pouvez tout essayer sans risque : aucune donnée n'est réelle. Si vous vous perdez, le bouton « Réinitialiser » remet la démonstration à zéro.", note: "Cette visite présente l'essentiel des fonctions de CERES Scolarité. Un manuel d'utilisation complet est remis à l'école avec son abonnement.", bouton: null },
+    { titre: "La Vue d'ensemble", texte: "C'est le tableau de bord de la Direction : nombre d'élèves inscrits, frais exigibles, montant encaissé, reste à recouvrer et part en retard. Vous voyez aussi les impayés par classe et les promesses de paiement. Vous pouvez choisir la période : aujourd'hui, la semaine, ou depuis la rentrée.", bouton: { onglet: "accueil", libelle: "Voir la Vue d'ensemble" } },
+    { titre: "Classes et élèves", texte: "Une école commence par ses classes. Chacune a sa grille de frais (scolarité en tranches, cantine, etc.) et ses élèves. Ouvrez la classe CP1 A pour voir sa grille.", bouton: { onglet: "classes", libelle: "Aller aux Classes" } },
+    { titre: "Encaisser un paiement", texte: "Choisissez un élève, la tranche à payer et le mode de paiement (espèces, Mobile Money, virement), puis validez. Le montant est contrôlé automatiquement.", bouton: { onglet: "encaissement", libelle: "Aller à l'Encaissement" } },
+    { titre: "Le reçu", texte: "Chaque paiement donne un reçu numéroté, avec le montant en lettres et le reste à payer. Vous pouvez imprimer l'original, puis des duplicata. Un reçu émis n'est jamais modifié : on le corrige par une écriture compensatrice, ce qui protège la caisse.", bouton: { onglet: "recus", libelle: "Aller aux Reçus" } },
+    { titre: "Relancer les familles en retard", texte: "L'application liste les impayés et prépare le message de relance, en trois tons (courtois, ferme, conciliant). Il ne reste qu'à l'envoyer par WhatsApp.", bouton: { onglet: "recouvrement", libelle: "Aller au Recouvrement" } },
+    { titre: "Clôturer la journée", texte: "En fin de journée, le caissier saisit l'argent compté, la Direction vérifie les écarts et verrouille la clôture. Voilà, vous avez fait le tour de l'essentiel. CERES Scolarité propose bien d'autres fonctions (rapprochement des paiements Mobile Money, corrections, gestion des utilisateurs…), toutes expliquées dans le manuel complet fourni avec l'abonnement.", bouton: { onglet: "cloture", libelle: "Aller à la Clôture de caisse" }, abonnement: true },
+];
+function VisiteGuidee({ etat, setEtat, onAller }) {
+    if (!etat) return null;
+    const n = ETAPES_VISITE.length;
+    const e = ETAPES_VISITE[etat.etape];
+    const aller = (delta) => setEtat({ ...etat, etape: Math.min(n - 1, Math.max(0, etat.etape + delta)) });
+    if (etat.reduit) {
+        return React.createElement("div", { style: { position: "fixed", left: 12, right: 12, bottom: 12, zIndex: 45, display: "flex", justifyContent: "center", pointerEvents: "none" } },
+            React.createElement("button", { onClick: () => setEtat({ ...etat, reduit: false }), style: { pointerEvents: "auto", background: C.navy, color: "#fff", borderRadius: 999, padding: "10px 18px", fontSize: 14, fontWeight: 600, boxShadow: "0 4px 14px rgba(0,0,0,0.25)" } }, `Visite guidée — étape ${etat.etape + 1} sur ${n} (rouvrir)`));
+    }
+    return React.createElement("div", { role: "dialog", "aria-label": "Visite guidée", style: { position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 45, display: "flex", justifyContent: "center", padding: "0 8px 8px", pointerEvents: "none" } },
+        React.createElement("div", { style: { pointerEvents: "auto", width: "100%", maxWidth: 560, maxHeight: "62vh", overflowY: "auto", background: "#fff", border: `1px solid ${C.border}`, borderTop: `4px solid ${C.gold}`, borderRadius: 14, boxShadow: "0 8px 28px rgba(15,25,35,0.28)", padding: 16 } },
+            React.createElement("div", { className: "mb-1 flex items-center justify-between gap-2" },
+                React.createElement("span", { style: { fontSize: 12, color: C.muted, textTransform: "uppercase", letterSpacing: 0.4 } }, `Visite guidée · étape ${etat.etape + 1} sur ${n}`),
+                React.createElement("span", { className: "flex gap-1" },
+                    React.createElement("button", { onClick: () => setEtat({ ...etat, reduit: true }), "aria-label": "Réduire la visite", style: { color: C.muted, fontSize: 13, padding: "2px 8px", border: `1px solid ${C.border}`, borderRadius: 6 } }, "Réduire"),
+                    React.createElement("button", { onClick: () => setEtat(null), "aria-label": "Fermer la visite", style: { color: C.muted, fontSize: 13, padding: "2px 8px", border: `1px solid ${C.border}`, borderRadius: 6 } }, "Fermer"))),
+            React.createElement("div", { style: { fontWeight: 700, color: C.ink, fontSize: 17, marginBottom: 6 } }, e.titre),
+            React.createElement("div", { className: "text-sm", style: { color: C.ink, lineHeight: 1.5 } }, e.texte),
+            e.note && React.createElement("div", { className: "mt-2 rounded-lg px-3 py-2 text-sm", style: { background: C.warnBg, color: C.warn } }, e.note),
+            e.bouton && React.createElement("div", { className: "mt-3" },
+                React.createElement(GhostButton, { onClick: () => { onAller(e.bouton.onglet); setEtat({ ...etat, reduit: true }); } }, e.bouton.libelle)),
+            e.abonnement && React.createElement("div", { className: "mt-2" },
+                React.createElement("a", { href: "/demander-etablissement.html", className: "text-sm underline", style: { color: C.navy, fontWeight: 600 } }, "Demander un abonnement pour mon école")),
+            React.createElement("div", { className: "mt-3 flex items-center justify-between gap-2" },
+                React.createElement(GhostButton, { onClick: () => aller(-1), disabled: etat.etape === 0 }, "Précédent"),
+                etat.etape < n - 1
+                    ? React.createElement(PrimaryButton, { onClick: () => aller(1) }, etat.etape === 0 ? "Commencer" : "Suivant")
+                    : React.createElement(PrimaryButton, { onClick: () => setEtat(null) }, "Terminer"))));
+}
+
 const TABS = [
     { id: "accueil", label: "Vue d'ensemble", icon: LayoutDashboard },
     { id: "bilan-jour", label: "Bilan du jour", icon: Calendrier },
@@ -9147,7 +9200,7 @@ function DemandesRecuesSection() {
                 React.createElement("option", { value: "atraiter" }, "À traiter (nouvelles et contactées)"),
                 React.createElement("option", { value: "toutes" }, "Toutes les demandes")),
             React.createElement("a", { href: "/demander-etablissement.html", target: "_blank", rel: "noopener", className: "underline", style: { color: C.navy } }, "Voir le formulaire public")),
-        erreur && React.createElement("div", { className: "mb-3" }, React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)),
+        erreur && React.createElement("div", { className: "mb-3" }, React.createElement(Banner, { defiler: true, tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)),
         demandes === null && !erreur && React.createElement(Banner, { tone: "info" }, "Chargement..."),
         demandes !== null && liste.length === 0 && React.createElement(Banner, { tone: "info" }, filtre === "atraiter" ? "Aucune demande à traiter pour le moment." : "Aucune demande reçue pour le moment."),
         React.createElement("div", { className: "space-y-2" }, liste.map((d) => {
@@ -9228,8 +9281,8 @@ function FormulesAbonnementSection() {
     };
     return (React.createElement("div", { className: "mt-8 border-t pt-6", style: { borderColor: C.border } },
         React.createElement(SectionTitle, { sub: "Les formules coch\u00E9es \u00AB propos\u00E9e \u00BB sont affich\u00E9es avec leur prix dans le formulaire public. Le prix annuel et le montant TTC sont calcul\u00E9s automatiquement." }, "Formules d'abonnement"),
-        erreur && React.createElement("div", { className: "mb-3" }, React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)),
-        message && React.createElement("div", { className: "mb-3" }, React.createElement(Banner, { tone: "success", icon: React.createElement(CheckCircle2, { size: 16 }) }, message)),
+        erreur && React.createElement("div", { className: "mb-3" }, React.createElement(Banner, { defiler: true, tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)),
+        message && React.createElement("div", { className: "mb-3" }, React.createElement(Banner, { defiler: true, tone: "success", icon: React.createElement(CheckCircle2, { size: 16 }) }, message)),
         formules === null && !erreur && React.createElement(Banner, { tone: "info" }, "Chargement..."),
         React.createElement("div", { className: "space-y-2" }, (formules || []).map((f) => {
             const b = brouillons[f.id] || { prix: "", tva: "", description: "", actif: false };
@@ -9481,7 +9534,7 @@ function AdministrationCeresTab({ moi }) {
                     React.createElement("input", { style: inputStyle, maxLength: 300, value: paiementForm.note, onChange: (v) => setPaiementForm({ ...paiementForm, note: v.target.value }) }))),
             React.createElement("div", { className: "mt-3" },
                 React.createElement(PrimaryButton, { onClick: () => enregistrerPaiement(e), disabled: enPaiement, icon: React.createElement(CheckCircle2, { size: 16 }) }, "Enregistrer le paiement")),
-            erreur && React.createElement("div", { className: "mt-3" }, React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)),
+            erreur && React.createElement("div", { className: "mt-3" }, React.createElement(Banner, { defiler: true, tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)),
             histo && React.createElement("div", { className: "mt-3 text-sm" },
                 React.createElement("div", { style: { fontWeight: 600, color: C.ink } }, "Paiements enregistrés"),
                 histo.length === 0
@@ -9530,8 +9583,9 @@ function AdministrationCeresTab({ moi }) {
             React.createElement("div", { className: "mt-3" },
                 React.createElement(PrimaryButton, { onClick: creer, disabled: envoi, icon: React.createElement(Plus, { size: 16 }) }, "Cr\u00E9er l'\u00E9cole")),
             erreur && (React.createElement("div", { className: "mt-3" },
-                React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))),
+                React.createElement(Banner, { defiler: true, tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))),
         chargement && React.createElement(Banner, { tone: "info" }, "Chargement..."),
+        !chargement && liste.length === 0 && React.createElement(Banner, { tone: "info" }, toutes.length > 0 && masquerTests ? `Aucune école cliente pour le moment (${toutes.length - visibles.length} école${toutes.length - visibles.length > 1 ? "s" : ""} de test masquée${toutes.length - visibles.length > 1 ? "s" : ""}).` : "Aucune école cliente pour le moment."),
         React.createElement("div", { className: "space-y-2" }, liste.map((e) => {
             const enModif = modifEnCours === e.id;
             const couleurs = COULEURS_STATUT[e.statutAbonnement] || COULEURS_STATUT["Actif"];
@@ -9641,13 +9695,13 @@ function ContinuiteAdminSection({ moi }) {
     const jeSuisSuppleantDormant = (moi.statutAdminCeres === "suppleant_rang1" || moi.statutAdminCeres === "suppleant_rang2") && !moi.suppleantActif;
     return (React.createElement("div", null,
         React.createElement(SectionTitle, { sub: "Qui peut administrer CERES centralement (cr\u00E9er des \u00E9tablissements, g\u00E9rer les abonnements) si vous n'\u00EAtes plus disponible." }, "Continuit\u00E9 de l'administration"),
-        erreur && React.createElement("div", { className: "mb-3" }, React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)),
+        erreur && React.createElement("div", { className: "mb-3" }, React.createElement(Banner, { defiler: true, tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)),
         React.createElement(Card, { style: { marginBottom: 16 } },
             React.createElement("div", { className: "space-y-2 text-sm" },
                 React.createElement("div", null,
                     React.createElement("span", { style: { fontWeight: 600 } }, "Administrateur principal : "),
                     etat.principal ? `${etat.principal.nom} (${etat.principal.email})` : "aucun",
-                    etat.principal && joursInactivitePrincipal !== null && (React.createElement("span", { className: "text-xs", style: { color: C.muted } }, ` — dernière activité il y a ${joursInactivitePrincipal} jour(s)`))),
+                    etat.principal && joursInactivitePrincipal !== null && (React.createElement("span", { className: "text-xs", style: { color: C.muted } }, ` — dernière activité : ${joursInactivitePrincipal <= 0 ? "aujourd'hui" : joursInactivitePrincipal === 1 ? "hier" : "il y a " + joursInactivitePrincipal + " jours"}`))),
                 React.createElement("div", null,
                     React.createElement("span", { style: { fontWeight: 600 } }, "Suppléant rang 1 : "),
                     etat.suppleantRang1 ? `${etat.suppleantRang1.nom} (${etat.suppleantRang1.email}) — ${etat.suppleantRang1.actif ? "ACTIF" : "en réserve"}` : "aucun désigné"),
@@ -9661,7 +9715,7 @@ function ContinuiteAdminSection({ moi }) {
             React.createElement("div", { className: "mb-2 text-sm", style: { fontWeight: 600, color: C.ink } }, "Journal des changements"),
             React.createElement("div", { className: "space-y-1" }, journal.map((l) => (React.createElement("div", { key: l.id, className: "text-xs rounded border p-2", style: { borderColor: C.border, color: C.muted } },
                 React.createElement("span", { style: { fontWeight: 600, color: C.ink } }, LIBELLES_ACTION[l.typeAction] || l.typeAction),
-                ` — ${formatDateFR(l.creeLe)} — validé par ${l.auteurNom}`,
+                ` — ${formatDateFR(l.creeLe)} — validé par ${(() => { const a = String(l.auteurNom || "").toLowerCase(); const t = [etat.principal, etat.suppleantRang1, etat.suppleantRang2].filter(Boolean).find((x) => x.email && String(x.email).split("@")[0].toLowerCase() === a); return t ? t.nom : l.auteurNom; })()}`,
                 l.ancienTitulaireNom && ` — ancien : ${l.ancienTitulaireNom}`,
                 l.nouveauTitulaireNom && ` — nouveau : ${l.nouveauTitulaireNom}`,
                 React.createElement("div", null, `Motif : ${l.motif}`)))))))));
@@ -9947,8 +10001,8 @@ function EtablissementTab({ etablissementId, etablissement, modeDemo, onIdentite
                     React.createElement(Field, { label: "Téléphone" }, React.createElement("input", { style: inputStyle, value: form.telephone, maxLength: 40, onChange: maj("telephone"), placeholder: "+235 …" })),
                     React.createElement(Field, { label: "E-mail de l'établissement" }, React.createElement("input", { style: inputStyle, value: form.emailContact, maxLength: 150, onChange: maj("emailContact"), placeholder: "contact@ecole.td" })),
                     React.createElement(Field, { label: "Mention libre", hint: "Par exemple : agrément n°, NIF, RCCM…" }, React.createElement("input", { style: inputStyle, value: form.mentionLegale, maxLength: 200, onChange: maj("mentionLegale") })),
-                    erreur && React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur),
-                    message && React.createElement(Banner, { tone: "success", icon: React.createElement(CheckCircle2, { size: 16 }) }, message),
+                    erreur && React.createElement(Banner, { defiler: true, tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur),
+                    message && React.createElement(Banner, { defiler: true, tone: "success", icon: React.createElement(CheckCircle2, { size: 16 }) }, message),
                     React.createElement(PrimaryButton, { onClick: enregistrer, disabled: enCours }, enCours ? "Enregistrement…" : "Enregistrer"))),
             React.createElement(Card, null,
                 React.createElement("div", { className: "mb-2 text-xs font-medium uppercase tracking-wide", style: { color: C.muted } }, "Aperçu du reçu"),
@@ -10068,12 +10122,12 @@ function UtilisateursTab({ etablissementId, moi }) {
                     React.createElement("select", { style: inputStyle, value: form.role, onChange: (e) => setForm({ ...form, role: e.target.value }) }, ROLES.filter((r) => r !== "Direction" || (moi === null || moi === void 0 ? void 0 : moi.role) === "Direction").map((r) => (React.createElement("option", { key: r }, r))))),
                 React.createElement(PrimaryButton, { onClick: ajouter, disabled: envoi, icon: React.createElement(Plus, { size: 16 }) }, "Ajouter")),
             erreur && (React.createElement("div", { className: "mt-3" },
-                React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))),
+                React.createElement(Banner, { defiler: true, tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))),
         React.createElement("details", { className: "mb-4 text-sm", style: { color: C.muted } },
             React.createElement("summary", { style: { cursor: "pointer", fontWeight: 600, color: C.navy } }, "Que peut faire chaque profil ?"),
             React.createElement("ul", { className: "mt-2 space-y-1", style: { paddingLeft: 16, listStyle: "disc" } },
                 [
-                    ["Direction", "tout voir et tout faire : valider les corrections, g\u00E9rer les utilisateurs, les param\u00E8tres de l\u2019\u00E9cole."],
+                    ["Direction", "tout voir et tout faire, notamment valider les corrections, g\u00E9rer les utilisateurs et r\u00E9gler les param\u00E8tres de l\u2019\u00E9cole."],
                     ["Administration \u00E9tablissement", "pr\u00E9parer l\u2019ann\u00E9e : classes, grilles de frais, \u00E9l\u00E8ves. Pas d\u2019acc\u00E8s \u00E0 la caisse."],
                     ["Comptabilit\u00E9", "suivre l\u2019argent : paiements, re\u00E7us, corrections, rapprochement, cl\u00F4ture et \u00E9carts de caisse, bilan du jour."],
                     ["Chef de caisse", "encaisser, \u00E9diter les re\u00E7us, pr\u00E9parer la cl\u00F4ture de caisse (la Direction la verrouille) et suivre les \u00E9carts."],
@@ -10104,7 +10158,7 @@ function UtilisateursTab({ etablissementId, moi }) {
                         u.role,
                         !u.authUserId && React.createElement("span", { style: { color: C.gold } }, " \u00B7 en attente de premi\u00E8re connexion"),
                         u.id === (moi === null || moi === void 0 ? void 0 : moi.id) && React.createElement("span", null, " \u00B7 c'est vous"))),
-                React.createElement("div", { className: "flex items-center gap-2" },
+                React.createElement("div", { className: "flex flex-wrap items-center gap-2", style: { maxWidth: "100%" } },
                     React.createElement("span", { className: "rounded-full px-2 py-0.5 text-xs", style: { background: u.actif ? C.successBg : C.dangerBg, color: u.actif ? C.success : C.danger } }, u.actif ? "Actif" : "Suspendu"),
                     u.id !== (moi === null || moi === void 0 ? void 0 : moi.id) && (moi === null || moi === void 0 ? void 0 : moi.role) === "Direction" && (React.createElement("select", { "aria-label": "Changer le profil", style: { ...inputStyle, width: "auto", maxWidth: 190, fontSize: 12 }, value: "", onChange: (e) => changerProfil(u, e.target.value) },
                         React.createElement("option", { value: "" }, "Changer le profil\u2026"),
@@ -10143,7 +10197,7 @@ function PassationDirectionSection({ liste, moi }) {
         React.createElement(Card, { style: { borderColor: C.dangerBg } },
             React.createElement("div", { style: { fontWeight: 600, marginBottom: 4, color: C.danger } }, "Passation de Direction \u2014 proc\u00E9dure formelle"),
             React.createElement("div", { className: "text-xs mb-2", style: { color: C.muted } }, "Vous perdrez imm\u00E9diatement le r\u00F4le Direction de cet \u00E9tablissement (vous deviendrez Administration \u00E9tablissement). Cette action est enregistr\u00E9e."),
-            erreur && React.createElement("div", { className: "mb-2" }, React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)),
+            erreur && React.createElement("div", { className: "mb-2" }, React.createElement(Banner, { defiler: true, tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)),
             React.createElement("div", { className: "mb-3 flex gap-1" },
                 candidats.length > 0 && React.createElement("button", { onClick: () => setModeSuccesseur("existant"), className: "rounded-full px-2.5 py-1 text-xs font-medium", style: { background: modeSuccesseur === "existant" ? C.navy : "#f1eee6", color: modeSuccesseur === "existant" ? "#fff" : C.muted } }, "D\u00E9j\u00E0 dans le syst\u00E8me"),
                 React.createElement("button", { onClick: () => setModeSuccesseur("nouveau"), className: "rounded-full px-2.5 py-1 text-xs font-medium", style: { background: modeSuccesseur === "nouveau" ? C.navy : "#f1eee6", color: modeSuccesseur === "nouveau" ? "#fff" : C.muted } }, "Personne externe, pas encore inscrite")),
@@ -10250,7 +10304,7 @@ function LoginScreen({ onDemarrerDemo }) {
                 React.createElement("div", { className: "mt-3" },
                     React.createElement(PrimaryButton, { onClick: envoyer, disabled: envoi }, envoi ? "Envoi..." : "Envoyer le lien de connexion")),
                 erreur && (React.createElement("div", { className: "mt-3" },
-                    React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur))))) : (React.createElement(Banner, { tone: "success", icon: React.createElement(CheckCircle2, { size: 16 }) },
+                    React.createElement(Banner, { defiler: true, tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur))))) : (React.createElement(Banner, { tone: "success", icon: React.createElement(CheckCircle2, { size: 16 }) },
                 "V\u00E9rifiez votre bo\u00EEte mail (",
                 React.createElement("strong", null, email),
                 ") et cliquez sur le lien re\u00E7u pour vous connecter. Pensez \u00E0 regarder aussi le dossier ind\u00E9sirables/spam."))),
@@ -10271,6 +10325,7 @@ function CeresNoyauFinancier() {
     const [saveError, setSaveError] = useState(false);
     const [saveErrorDetail, setSaveErrorDetail] = useState("");
     const [confirmReset, setConfirmReset] = useState(false);
+    const [visite, setVisite] = useState(null); // visite guidée (démonstration) : null ou { etape, reduit }
     const [reinitEnCours, setReinitEnCours] = useState(false);
     const [reinitErreur, setReinitErreur] = useState("");
     const [authLoading, setAuthLoading] = useState(true);
@@ -10677,7 +10732,7 @@ function CeresNoyauFinancier() {
             React.createElement("strong", null, profil.nom),
             " (",
             profil.role,
-            "). N\u2019y saisissez aucune donn\u00E9e r\u00E9elle. ", React.createElement("span", { className: "ceres-hide-xs" }, "D\u00E9monstration publique partag\u00E9e : ne saisissez aucun nom d\u2019\u00E9l\u00E8ve, de parent ni aucun t\u00E9l\u00E9phone r\u00E9els. Tout est effac\u00E9 chaque nuit. Pour g\u00E9rer votre propre \u00E9cole, contactez CERES. "), React.createElement("a", { href: "/demander-etablissement.html", className: "underline", style: { fontWeight: 600 } }, "Demander un abonnement pour mon \u00E9cole"))) : (React.createElement(Banner, { tone: "info" },
+            "). N\u2019y saisissez aucune donn\u00E9e r\u00E9elle. ", React.createElement("span", { className: "ceres-hide-xs" }, "D\u00E9monstration publique partag\u00E9e : ne saisissez aucun nom d\u2019\u00E9l\u00E8ve, de parent ni aucun t\u00E9l\u00E9phone r\u00E9els. Tout est effac\u00E9 chaque nuit. Pour g\u00E9rer votre propre \u00E9cole, contactez CERES. "), React.createElement("a", { href: "/demander-etablissement.html", className: "underline", style: { fontWeight: 600 } }, "Demander un abonnement pour mon \u00E9cole"), " ", React.createElement("button", { onClick: () => setVisite({ etape: 0, reduit: false }), className: "rounded-lg px-3 py-1 text-sm", style: { background: C.navy, color: "#fff", fontWeight: 600, marginLeft: 4 } }, "Visite guidée (3 min)"))) : (React.createElement(Banner, { tone: "info" },
             "Connect\u00E9 en tant que ",
             React.createElement("strong", null, profil.email),
             " \u2014 profil ",
@@ -10759,6 +10814,7 @@ function CeresNoyauFinancier() {
             activeTab === "etablissement" && (React.createElement(EtablissementTab, { etablissementId: data.etablissementId, etablissement: etablissementActuel, modeDemo: (profil && profil.modeDemo) === true, onIdentiteChange: (nouvelle) => setEtablissementActuel((prev) => ({ ...(prev || {}), ...nouvelle })) })),
             activeTab === "utilisateurs" && (React.createElement(UtilisateursTab, { etablissementId: data.etablissementId, moi: profil })),
             activeTab === "administration-ceres" && React.createElement(AdministrationCeresTab, { moi: profil })),
+        (profil && profil.modeDemo === true) && React.createElement(VisiteGuidee, { etat: visite, setEtat: setVisite, onAller: (id) => { setActiveTab(id); try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch (e) { } } }),
         confirmReset && (() => {
             if (confirmReset === "success") {
                 return React.createElement("div", { className: "fixed inset-0 flex items-center justify-center p-4", style: { background: "rgba(15,25,35,0.5)", zIndex: 50 } },
