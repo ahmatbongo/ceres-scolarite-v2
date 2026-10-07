@@ -86,6 +86,8 @@ const FONT_IMPORT = `
 .ceres-tabstrip::-webkit-scrollbar-thumb { background: #cbbf9e; border-radius: 4px; }
 
 html, body, #root { max-width: 100%; overflow-x: hidden; }
+input[type=file] { font-size: 14px; max-width: 100%; }
+input[type=file]::file-selector-button { background: #16304a; color: #fff; border: 0; border-radius: 8px; padding: 8px 12px; margin-right: 8px; font-weight: 600; cursor: pointer; }
 .grid:not([class*="grid-cols"]) { grid-template-columns: minmax(0, 1fr); }
 .grid > * { min-width: 0; }
 .ceres-table-wrap { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -2px; }
@@ -99,6 +101,17 @@ html, body, #root { max-width: 100%; overflow-x: hidden; }
   select, textarea, input:not([type=checkbox]):not([type=radio]) { font-size: 16px !important; }
   input[type=checkbox], input[type=radio] { width: 22px; height: 22px; }
   .ceres-tapline { padding: 12px 8px; }
+  .ceres-table-wrap.ceres-sans-indice::before { display: none; }
+  .ceres-table-wrap table.ceres-stack { min-width: 0; }
+  .ceres-stack thead { display: none; }
+  .ceres-stack tr { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; padding: 8px 0; }
+  .ceres-stack td { text-align: left !important; padding-top: 2px !important; padding-bottom: 2px !important; }
+  .ceres-stack td:first-child { grid-column: 1 / -1; font-weight: 600; }
+  .ceres-stack td[data-label]::before { content: attr(data-label); display: block; font-size: 11px; color: #6b7580; text-transform: uppercase; }
+  .ceres-stack td:empty { display: none; }
+  .ceres-stack td:first-child * { font-weight: 400; }
+  .ceres-stack input { width: 100% !important; }
+  .ceres-table-wrap::before { content: "Faites glisser le tableau \u2192"; display: block; text-align: right; font-size: 11px; color: #6b7580; margin-bottom: 2px; }
   .ceres-tabstrip button { min-height: 48px; padding-left: 14px; padding-right: 14px; font-size: 15px; }
   .ceres-avec-barre .ceres-tabstrip { display: none; }
   .ceres-avec-barre { padding-bottom: 76px; }
@@ -317,7 +330,7 @@ async function deconnecter(accessToken) {
     }
     effacerSession();
 }
-// Retrouve la fiche utilisateurs/habilitations correspondant à la personne
+// Retrouve la fiche utilisateurs/droits d’accès correspondant à la personne
 // connectée. La création du tout premier établissement n'appartient jamais à
 // ce parcours client : sous RLS, une ligne invisible ne signifie pas que la
 // base est vide.
@@ -604,7 +617,7 @@ function uid() {
 }
 function formatFCFA(n) {
     const v = Math.round(Number(n) || 0);
-    return `${v.toLocaleString("fr-FR").replace(/\u202f/g, " ")} FCFA`;
+    return `${v.toLocaleString("fr-FR").replace(/[\u202f\u00a0 ]/g, "\u00a0")}\u00a0FCFA`;
 }
 function formatDateFR(iso) {
     if (!iso)
@@ -1110,7 +1123,7 @@ function ClassesTab({ data, setData, role, moi, rafraichirDonnees }) {
         React.createElement(SectionTitle, { sub: "La grille doit \u00EAtre compl\u00E8te avant d'inscrire un \u00E9l\u00E8ve : elle sera alors affect\u00E9e automatiquement, sans ressaisie." }, "Classes & grilles tarifaires"),
         React.createElement("div", { className: "mb-4" },
             React.createElement(Banner, { tone: "info" },
-                "R\u00E8gle CERES : l'inscription n'est pas un frais qui s'ajoute \u00E0 la scolarit\u00E9 \u2014 c'est sa ",
+                "R\u00E8gle de l\u2019application : l'inscription n'est pas un frais qui s'ajoute \u00E0 la scolarit\u00E9 \u2014 c'est sa ",
                 React.createElement("strong", null, "premi\u00E8re tranche"),
                 ". Le montant annuel de la scolarit\u00E9 inclut d\u00E9j\u00E0 l'inscription ; aucun double comptage.")),
         React.createElement(Card, { style: { marginBottom: 16 } },
@@ -1148,7 +1161,7 @@ function ClassesTab({ data, setData, role, moi, rafraichirDonnees }) {
                                     cls.archivee && React.createElement("span", { className: "ml-2 rounded-full px-2 py-0.5 text-xs", style: { background: "#f1eee6", color: C.muted } }, "Archiv\u00E9e")),
                                 React.createElement("div", { className: "mt-0.5 text-xs", style: { color: C.muted } },
                                     fraisClasse.length,
-                                    " frais définis · total du catalogue ",
+                                    " frais définis · total des frais ",
                                     React.createElement(Money, null, total))),
                             React.createElement(ChevronRight, { size: 18, style: { color: C.muted, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform .15s" } })),
                         peutFixerTarifs && (React.createElement(GhostButton, { onClick: () => archiverClasse(cls.id, !cls.archivee), disabled: envoiArchivage === cls.id }, cls.archivee ? "D\u00E9sarchiver" : "Archiver"))),
@@ -1167,8 +1180,8 @@ function ClassesTab({ data, setData, role, moi, rafraichirDonnees }) {
                                         React.createElement("div", { className: "mb-1 text-xs font-medium uppercase tracking-wide", style: { color: C.muted } },
                                             `Scolarité annuelle — version ${v}`,
                                             dateEffetVersion ? ` (en vigueur \u00e0 partir du ${formatDateFR(dateEffetVersion)})` : versions.length > 1 ? " (premi\u00e8re version)" : ""),
-                                        React.createElement("div", { className: "ceres-table-wrap" },
-                                            React.createElement("table", { className: "w-full text-sm" },
+                                        React.createElement("div", { className: "ceres-table-wrap ceres-sans-indice" },
+                                            React.createElement("table", { className: "w-full text-sm ceres-stack" },
                                                 React.createElement("thead", null,
                                                     React.createElement("tr", { style: { color: C.muted, fontSize: 12, textTransform: "uppercase" } },
                                                         React.createElement("th", { className: "pb-1 text-left" }, "Tranche"),
@@ -1180,8 +1193,8 @@ function ClassesTab({ data, setData, role, moi, rafraichirDonnees }) {
                                                             f.ordre,
                                                             ". ",
                                                             f.libelle),
-                                                        React.createElement("td", { className: "py-1.5" }, formatDateFR(f.dateEcheance)),
-                                                        React.createElement("td", { className: "py-1.5 text-right" },
+                                                        React.createElement("td", { className: "py-1.5", "data-label": "\u00C9ch\u00E9ance" }, formatDateFR(f.dateEcheance)),
+                                                        React.createElement("td", { className: "py-1.5 text-right", "data-label": "Montant" },
                                                             React.createElement(Money, null, f.montant))))),
                                                     React.createElement("tr", null,
                                                         React.createElement("td", { colSpan: 2, className: "pt-2 text-right font-medium" }, "Sous-total"),
@@ -1198,14 +1211,14 @@ function ClassesTab({ data, setData, role, moi, rafraichirDonnees }) {
                                 scolariteItems.length > 0 && (React.createElement(Field, { label: "Date d'effet (nouvelle version)", hint: "obligatoire si une grille existe d\u00e9j\u00e0" },
                                     React.createElement(ChampDateFR, { style: inputStyle, value: scolarite.dateEffet, onChange: (e) => setScolarite({ ...scolarite, dateEffet: e.target.value }) })))),
                             React.createElement("div", { className: "mt-3 mb-1 text-xs font-medium uppercase tracking-wide", style: { color: C.muted } }, "Tranches : date d'\u00E9ch\u00E9ance et montant de chacune"),
-                            React.createElement("div", { className: "ceres-table-wrap" },
-                                React.createElement("table", { className: "w-full text-sm" },
+                            React.createElement("div", { className: "ceres-table-wrap ceres-sans-indice" },
+                                React.createElement("table", { className: "w-full text-sm ceres-stack" },
                                     React.createElement("tbody", null,
                                         Array.from({ length: nbTranchesSaisi }, (_, i) => (React.createElement("tr", { key: i, style: { borderTop: `1px solid ${C.border}` } },
                                             React.createElement("td", { className: "py-1.5 pr-2", style: { whiteSpace: "nowrap" } }, i === 0 ? "1\u02B3\u1D49 tranche (inscription)" : `Tranche ${i + 1}`),
-                                            React.createElement("td", { className: "py-1.5 pr-2" },
+                                            React.createElement("td", { className: "py-1.5 pr-2", "data-label": "Date d\u2019\u00E9ch\u00E9ance" },
                                                 React.createElement(ChampDateFR, { style: inputStyle, "aria-label": `Date d'\u00E9ch\u00E9ance de la tranche ${i + 1}`, value: ligneTranche(i).date, onChange: (e) => majLigneTranche(i, { date: e.target.value }) })),
-                                            React.createElement("td", { className: "py-1.5" },
+                                            React.createElement("td", { className: "py-1.5", "data-label": "Montant (FCFA)" },
                                                 React.createElement("input", { style: inputStyle, type: "number", min: "0", placeholder: "Montant (FCFA)", onWheel: bloquerMolette, "aria-label": `Montant de la tranche ${i + 1}`, value: ligneTranche(i).montant, onChange: (e) => majLigneTranche(i, { montant: e.target.value }) })))))))),
                             React.createElement("div", { className: "mt-2 text-xs", style: { color: C.muted } },
                                 "Les dates sont facultatives et doivent se suivre dans l'ordre. Laissez tous les montants vides pour un partage \u00E9gal, ou saisissez-les (la 1\u02B3\u1D49 tranche est souvent la plus \u00E9lev\u00E9e). ",
@@ -1218,9 +1231,9 @@ function ClassesTab({ data, setData, role, moi, rafraichirDonnees }) {
                                 React.createElement(GhostButton, { onClick: repartirEgalement }, "R\u00E9partir \u00E0 parts \u00E9gales"),
                                 React.createElement(PrimaryButton, { onClick: () => genererScolarite(cls.id), disabled: envoiScolarite, icon: React.createElement(Plus, { size: 16 }) }, scolariteItems.length > 0 ? "Cr\u00E9er une nouvelle version" : "G\u00E9n\u00E9rer les tranches")))),
                         autresItems.length > 0 && (React.createElement("div", { className: "mb-3" },
-                            React.createElement("div", { className: "mb-1 text-xs font-medium uppercase tracking-wide", style: { color: C.muted } }, "Autres frais — catalogue"),
-                            React.createElement("div", { className: "ceres-table-wrap" },
-                                React.createElement("table", { className: "w-full text-sm" },
+                            React.createElement("div", { className: "mb-1 text-xs font-medium uppercase tracking-wide", style: { color: C.muted } }, "Autres frais (optionnels et conditionnels)"),
+                            React.createElement("div", { className: "ceres-table-wrap ceres-sans-indice" },
+                                React.createElement("table", { className: "w-full text-sm ceres-stack" },
                                     React.createElement("tbody", null,
                                         autresItems.map((f) => (React.createElement("tr", { key: f.id, style: { borderTop: `1px solid ${C.border}` } },
                                             React.createElement("td", { className: "py-1.5" }, f.libelle,
@@ -1231,8 +1244,8 @@ function ClassesTab({ data, setData, role, moi, rafraichirDonnees }) {
                                                         onChange: () => basculerConditionnel(f) }), " Actif pour cette classe",
                                                     React.createElement("span", { className: "block mt-1 text-xs", style: { color: C.muted } },
                                                         "Un frais conditionnel actif s'applique automatiquement à tout nouvel élève inscrit dans cette classe. Désactiver n'enlève rien aux élèves déjà inscrits ; activer ne s'applique pas rétroactivement à ceux déjà là."))),
-                                            React.createElement("td", { className: "py-1.5" }, formatDateFR(f.dateEcheance)),
-                                            React.createElement("td", { className: "py-1.5 text-right" },
+                                            React.createElement("td", { className: "py-1.5", "data-label": "\u00C9ch\u00E9ance" }, formatDateFR(f.dateEcheance)),
+                                            React.createElement("td", { className: "py-1.5 text-right", "data-label": "Montant" },
                                                 React.createElement(Money, null, f.montant)),
                                             React.createElement("td", { className: "py-1.5 text-right" }, peutFixerTarifs && (React.createElement("button", { onClick: () => supprimerFrais(f.id, cls.id), className: "ceres-tapline text-xs", style: { color: C.danger } }, "retirer")))))),
                                         React.createElement("tr", null,
@@ -4406,7 +4419,7 @@ function htmlRecuImprimable({ paiement, eleve, classe, nomEtablissement, identit
         ["Date", formatDateHeureFR(paiement.date)],
         ["Encaissé par", paiement.caissier || "—"],
     ];
-    return `<!doctype html><html lang="fr"><head><meta charset="utf-8">
+    return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Reçu ${e(paiement.numeroRecu)}</title>
 <style>
   @page { size: A5 portrait; margin: 12mm; }
@@ -4432,7 +4445,7 @@ function htmlRecuImprimable({ paiement, eleve, classe, nomEtablissement, identit
   .signature { display: flex; justify-content: space-between; margin-top: 18px; font-size: 14px; color: #555; }
   .signature div { width: 45%; border-top: 1px solid #999; padding-top: 4px; text-align: center; }
   .pied { margin-top: 10px; font-size: 12px; color: #777; text-align: center; }
-  .filigrane { position: absolute; top: 40%; left: 0; right: 0; text-align: center; font-size: 72px; font-weight: bold; color: rgba(180,0,0,.13); transform: rotate(-20deg); pointer-events: none; }
+  .filigrane { position: absolute; top: 40%; left: 0; right: 0; text-align: center; font-size: 72px; font-weight: bold; color: rgba(180,0,0,.22); transform: rotate(-20deg); pointer-events: none; }
   .barre { text-align: center; margin: 10px 0; }
   .barre button { font-size: 14px; padding: 8px 18px; cursor: pointer; }
   @media print { .barre { display: none; } }
@@ -5139,7 +5152,7 @@ function CorrectionsTab({ data, moi, rafraichirDonnees }) {
     const STATUTS_COULEUR = { en_attente: C.warn, approuvee: C.success, rejetee: C.danger };
     return (React.createElement("div", { className: "grid gap-4 lg:grid-cols-2" },
         React.createElement("div", null,
-            React.createElement(SectionTitle, { sub: "Une correction ajuste un paiement, une annulation l'efface, un remboursement fait sortir l'argent de la caisse, un avoir cr\u00E9dite les frais \u00E0 venir." }, "Corrections"),
+            React.createElement(SectionTitle, { sub: "Une correction ajuste un paiement, une annulation en neutralise l’effet, un remboursement fait sortir l'argent de la caisse, un avoir cr\u00E9dite les frais \u00E0 venir." }, "Corrections"),
             (moi === null || moi === void 0 ? void 0 : moi.role) !== "Direction" && (React.createElement("div", { className: "mb-3" },
                 React.createElement(Banner, { tone: "info" }, "Votre soumission sera enregistr\u00E9e en attente : elle ne prendra effet qu'apr\u00E8s validation par la Direction."))),
             React.createElement(Card, null,
@@ -5234,7 +5247,7 @@ function CorrectionsTab({ data, moi, rafraichirDonnees }) {
 /* ------------------------------------------------------------------ */
 /* Messages de relance et constantes partagées                        */
 /* ------------------------------------------------------------------ */
-const salutationRelance = (r) => (r.respNom ? `Madame, Monsieur ${r.respNom},` : "Madame, Monsieur,");
+const salutationRelance = (r) => "Madame, Monsieur,";
 const clotureRelance = (r) => `Veuillez agréer, Madame, Monsieur, l'expression de nos salutations distinguées.\n\nLa Direction${r.ecole ? ` — ${r.ecole}` : ""}`;
 const TONS_RELANCE = {
     "Courtois": (r) => `${salutationRelance(r)}\n\nSauf erreur de notre part, il reste ${formatFCFA(r.reste)} à régler au titre de « ${r.libelle} » pour l'élève ${r.prenom} ${r.nom}. Nous vous remercions de bien vouloir prendre contact avec la comptabilité de l'établissement.\n\n${clotureRelance(r)}`,
@@ -5549,7 +5562,7 @@ function RepriseSoldesTab({ data, moi, rafraichirDonnees }) {
     const [envoi, setEnvoi] = useState(false);
     const [lotAAnnuler, setLotAAnnuler] = useState(null);
     const [motifAnnulation, setMotifAnnulation] = useState("");
-    const fmt = (n) => `${Number(n || 0).toLocaleString("fr-FR")} F`;
+    const fmt = (n) => `${Number(n || 0).toLocaleString("fr-FR").replace(/[\u202f\u00a0 ]/g, "\u00a0")}\u00a0FCFA`;
     const eleves = data.eleves
         .filter((e) => e.classeId === classeId && e.statut !== "Sorti")
         .sort((a, b) => String(a.nom + a.prenom).localeCompare(String(b.nom + b.prenom)));
@@ -5600,18 +5613,18 @@ function RepriseSoldesTab({ data, moi, rafraichirDonnees }) {
                     h("option", { value: "" }, "— Choisir —"),
                     data.classes.filter((c) => !c.archivee).map((c) => h("option", { key: c.id, value: c.id }, `${c.nom} — ${c.annee}`)))),
             classeId && eleves.length === 0 && h("div", { className: "mt-2 text-sm", style: { color: C.muted } }, "Aucun élève dans cette classe."),
-            eleves.length > 0 && h("div", { className: "ceres-table-wrap mt-3" },
-                h("table", { className: "w-full text-sm" },
+            eleves.length > 0 && h("div", { className: "ceres-table-wrap ceres-sans-indice mt-3" },
+                h("table", { className: "w-full text-sm ceres-stack" },
                     h("thead", null, h("tr", { style: { color: C.muted, fontSize: 11, textTransform: "uppercase" } },
                         h("th", { className: "pb-1 text-left" }, "Élève"),
                         h("th", { className: "pb-1 text-right" }, "Reste dû actuel"),
-                        h("th", { className: "pb-1 text-right" }, "Déjà versé avant CERES (F)"))),
+                        h("th", { className: "pb-1 text-right" }, "Déjà versé avant l’application (FCFA)"))),
                     h("tbody", null, eleves.map((e) => {
                         const d = computeDossier(e, data);
                         return h("tr", { key: e.id, style: { borderTop: `1px solid ${C.border}` } },
                             h("td", { className: "py-1.5" }, `${e.prenom} ${e.nom}`, h("span", { className: "text-xs", style: { color: C.muted } }, ` · ${e.matricule}`)),
-                            h("td", { className: "py-1.5 text-right" }, h(Money, { tone: d.totals.reste > 0 ? C.warn : C.muted }, d.totals.reste)),
-                            h("td", { className: "py-1.5 text-right" },
+                            h("td", { className: "py-1.5 text-right", "data-label": "Reste dû actuel" }, h(Money, { tone: d.totals.reste > 0 ? C.warn : C.muted }, d.totals.reste)),
+                            h("td", { className: "py-1.5 text-right", "data-label": "Déjà versé avant l’application (FCFA)" },
                                 h("input", { style: { ...inputStyle, width: 130, textAlign: "right" }, inputMode: "numeric", value: montants[e.id] ? Number(montants[e.id]).toLocaleString("fr-FR") : "", onChange: (ev) => saisir(e.id, ev.target.value), placeholder: "0" })));
                     })))),
             eleves.length > 0 && h("div", { className: "mt-4 grid gap-3 sm:grid-cols-2" },
@@ -5658,7 +5671,7 @@ function RepriseDossier({ eleve, data, moi, rafraichirDonnees }) {
     const lignes = (data.reprises || []).filter((r) => r.eleveId === eleve.id);
     const total = lignes.reduce((s, r) => s + r.montant, 0);
     if (total <= 0) return null;
-    const fmt = (n) => `${Number(n || 0).toLocaleString("fr-FR")} F`;
+    const fmt = (n) => `${Number(n || 0).toLocaleString("fr-FR").replace(/[\u202f\u00a0 ]/g, "\u00a0")}\u00a0FCFA`;
     const lot = (data.lotsReprise || []).find((l) => l.id === (lignes[0] && lignes[0].lotId));
     const corriger = async () => {
         setErreur(""); setEnvoi(true);
@@ -5704,7 +5717,7 @@ function PassageAnnuelTab({ data, moi, rafraichirDonnees }) {
             return setErreur("Indiquez l'ann\u00e9e scolaire cible (ex. 2027-2028).");
         const liste = elevesClasse.filter((e) => !dejaFait(e.id) && decisions[e.id]);
         if (liste.length === 0)
-            return setErreur("Aucune d\u00e9cision \u00e0 valider (choisissez au moins une classe cible ou \u00ab Sort \u00bb pour un \u00e9l\u00e8ve).");
+            return setErreur("Aucune d\u00e9cision \u00e0 valider (choisissez au moins une classe d’arrivée ou \u00ab Sort \u00bb pour un \u00e9l\u00e8ve).");
         setEnvoi(true);
         try {
             const p_decisions = liste.map((e) => decisions[e.id] === "sort"
@@ -5729,21 +5742,21 @@ function PassageAnnuelTab({ data, moi, rafraichirDonnees }) {
         }
     };
     return (React.createElement("div", null,
-        React.createElement(SectionTitle, { sub: "Chaque \u00e9l\u00e8ve garde son matricule et tout son historique. Aucune ligne de l'ann\u00e9e source n'est jamais modifi\u00e9e. Relancer le passage sur un \u00e9l\u00e8ve d\u00e9j\u00e0 pass\u00e9 ne cr\u00e9e rien de plus." }, "Passage annuel"),
+        React.createElement(SectionTitle, { sub: "Chaque \u00e9l\u00e8ve garde son matricule et tout son historique. Aucune ligne de l’année de départ n’est jamais modifiée. Relancer le passage sur un \u00e9l\u00e8ve d\u00e9j\u00e0 pass\u00e9 ne cr\u00e9e rien de plus." }, "Passage annuel"),
         React.createElement(Card, { style: { marginBottom: 16 } },
             React.createElement("div", { className: "grid gap-3 sm:grid-cols-3" },
-                React.createElement(Field, { label: "Ann\u00e9e source" },
+                React.createElement(Field, { label: "Année de départ" },
                     React.createElement("select", { style: inputStyle, value: anneeSource, onChange: (e) => { setAnneeSource(e.target.value); setClasseSourceId(""); setAnneeCible(anneeSuivante(e.target.value)); } },
                         React.createElement("option", { value: "" }, "\u2014 Choisir \u2014"),
                         annees.map((a) => (React.createElement("option", { key: a }, a))))),
-                React.createElement(Field, { label: "Classe source" },
+                React.createElement(Field, { label: "Classe de départ" },
                     React.createElement("select", { style: inputStyle, value: classeSourceId, onChange: (e) => setClasseSourceId(e.target.value) },
                         React.createElement("option", { value: "" }, "\u2014 Choisir \u2014"),
                         classesSource.map((c) => (React.createElement("option", { key: c.id, value: c.id }, c.nom))))),
-                React.createElement(Field, { label: "Ann\u00e9e cible", hint: "Calcul\u00e9e automatiquement (ann\u00e9e source + 1) ; modifiable si besoin" },
+                React.createElement(Field, { label: "Année d’arrivée", hint: "Calcul\u00e9e automatiquement (année de départ + 1) ; modifiable si besoin" },
                     React.createElement("input", { style: inputStyle, value: anneeCible, onChange: (e) => setAnneeCible(e.target.value) }))),
             classesCible.length === 0 && anneeCible.trim() && (React.createElement("div", { className: "mt-3" },
-                React.createElement(Banner, { tone: "warn", icon: React.createElement(AlertTriangle, { size: 16 }) }, "Aucune classe n'existe encore pour cette ann\u00e9e cible \u2014 cr\u00e9e-les d'abord (avec leur grille) dans \u00ab Classes & grilles \u00bb."))),
+                React.createElement(Banner, { tone: "warn", icon: React.createElement(AlertTriangle, { size: 16 }) }, "Aucune classe n'existe encore pour cette année d’arrivée \u2014 créez-les d’abord (avec leur grille) dans \u00ab Classes & grilles \u00bb."))),
             erreur && (React.createElement("div", { className: "mt-3" },
                 React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur))),
             resultat && (React.createElement("div", { className: "mt-3" },
@@ -7396,7 +7409,7 @@ function RapprochementManuelTab({ moi, data }) {
 
     return React.createElement("div", null,
         React.createElement(SectionTitle, {
-            sub: "Mode par défaut : partez des paiements déjà enregistrés dans CERES et cochez ceux que vous retrouvez sur le relevé papier, PDF ou imprimé de la banque / de l’opérateur."
+            sub: "Mode par défaut : partez des paiements déjà enregistrés dans l'application et cochez ceux que vous retrouvez sur le relevé papier, PDF ou imprimé de la banque / de l’opérateur."
         }, "Pointage manuel"),
         React.createElement(Card, { style: { marginBottom: 12 } },
             React.createElement("div", { className: "grid gap-3 sm:grid-cols-2 lg:grid-cols-5 lg:items-end" },
@@ -7426,7 +7439,7 @@ function RapprochementManuelTab({ moi, data }) {
                 React.createElement("div", null,
                     React.createElement("div", { style: { fontWeight: 600, color: C.ink } }, "Retrouver les encaissements sur le relevé"),
                     React.createElement("div", { className: "mt-1 text-xs", style: { color: C.muted } }, peutPointer
-                        ? "Sélectionnez les paiements vérifiés, puis confirmez leur pointage ou leur retrait. Une case cochée ne modifie jamais la base avant confirmation."
+                        ? "Sélectionnez les paiements vérifiés, puis confirmez leur pointage ou leur retrait. Une case cochée ne change rien tant que vous n’avez pas confirmé."
                         : "Consultation seule : les pointages sont enregistrés par la Direction ou la Comptabilité.")),
                 peutPointer && React.createElement("div", { className: "flex flex-wrap gap-2" },
                     React.createElement(PrimaryButton, { onClick: ouvrirConfirmationPointage, disabled: selectionAPointer.length === 0 || enregistrement }, `Pointer la sélection (${selectionAPointer.length})`),
@@ -7473,7 +7486,7 @@ function RapprochementManuelTab({ moi, data }) {
                     }))))),
         React.createElement(Card, { style: { marginTop: 12, background: "#fbfaf7" } },
             React.createElement("div", { style: { fontWeight: 600, color: C.ink } }, "Règle de pointage"),
-            React.createElement("div", { className: "mt-1 text-xs", style: { color: C.muted, lineHeight: 1.6 } }, "Le pointage ne modifie jamais le paiement enregistr\u00e9 et ne crée aucun encaissement. Il constitue uniquement la preuve de contrôle du comptable : « ce paiement enregistré dans CERES a été retrouvé sur le relevé ». Les pointages et leurs changements de statut sont enregistrés en base et restent consultables dans l’historique.")),
+            React.createElement("div", { className: "mt-1 text-xs", style: { color: C.muted, lineHeight: 1.6 } }, "Le pointage ne modifie jamais le paiement enregistr\u00e9 et ne crée aucun encaissement. Il constitue uniquement la preuve de contrôle du comptable : « ce paiement enregistré dans l’application a été retrouvé sur le relevé ». Les pointages et leurs changements de statut sont conservés et restent consultables dans l’historique.")),
         confirmationAction && React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(14,34,51,0.38)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 } },
             React.createElement(Card, { style: { width: "100%", maxWidth: 560 } },
                 React.createElement("div", { className: "flex items-center justify-between gap-3" },
@@ -8143,29 +8156,29 @@ function ClotureTab({ data, moi, dateInitiale, blocageCaisse, cloturesVerrouille
                 verrouillee && (React.createElement("span", { className: "flex items-center gap-1 text-sm", style: { color: C.success } },
                     React.createElement(Lock, { size: 14 }),
                     " Journ\u00E9e verrouill\u00E9e"))),
-            React.createElement("div", { className: "ceres-table-wrap" },
-                React.createElement("table", { className: "mb-3 w-full text-sm" },
+            React.createElement("div", { className: "ceres-table-wrap ceres-sans-indice" },
+                React.createElement("table", { className: "mb-3 w-full text-sm ceres-stack" },
                     React.createElement("thead", null,
                         React.createElement("tr", { style: { color: C.muted, fontSize: 11, textTransform: "uppercase" } },
                             React.createElement("th", { className: "pb-1 text-left" }, "Moyen"),
                             React.createElement("th", { className: "pb-1 text-right" }, "Enregistr\u00E9"),
-                            React.createElement("th", { className: "pb-1 text-right" }, "Constat\u00E9"),
+                            React.createElement("th", { className: "pb-1 text-right" }, "Compt\u00E9"),
                             React.createElement("th", { className: "pb-1 text-right" }, "\u00C9cart"))),
                     React.createElement("tbody", null, modes.map((m) => (React.createElement("tr", { key: m, style: { borderTop: `1px solid ${C.border}` } },
                         React.createElement("td", { className: "py-1.5" }, m),
-                        React.createElement("td", { className: "py-1.5 text-right" },
+                        React.createElement("td", { className: "py-1.5 text-right", "data-label": "Enregistr\u00E9" },
                             React.createElement(Money, null, enregistrements[m])),
-                        React.createElement("td", { className: "py-1.5 text-right" },
+                        React.createElement("td", { className: "py-1.5 text-right", "data-label": "Compt\u00E9" },
                             React.createElement("input", { disabled: verrouillee, style: { ...inputStyle, width: 100, textAlign: "right", display: "inline-block" }, type: "number", onWheel: bloquerMolette, value: constate[m], onChange: (e) => setConstate({ ...constate, [m]: e.target.value }) })),
-                        React.createElement("td", { className: "py-1.5 text-right" },
+                        React.createElement("td", { className: "py-1.5 text-right", "data-label": "\u00C9cart" },
                             (constate[m] === "" && !verrouillee) ? React.createElement("span", { style: { color: C.muted } }, "\u2014") : React.createElement(Money, { tone: ecarts[m] !== 0 ? C.danger : C.success }, ecarts[m] || 0)))))),
                     React.createElement("tfoot", null,
                         React.createElement("tr", { style: { borderTop: `2px solid ${C.navy}` } },
                             React.createElement("td", { className: "pt-2 font-medium" }, "Total"),
-                            React.createElement("td", { className: "pt-2 text-right" },
+                            React.createElement("td", { className: "pt-2 text-right", "data-label": "Enregistr\u00E9" },
                                 React.createElement(Money, null, totalEnregistre)),
                             React.createElement("td", null),
-                            React.createElement("td", { className: "pt-2 text-right" },
+                            React.createElement("td", { className: "pt-2 text-right", "data-label": "\u00C9cart" },
                                 (modes.some((mm) => constate[mm] === "") && !verrouillee) ? React.createElement("span", { style: { color: C.muted } }, "\u2014") : React.createElement(Money, { tone: ecartTotal !== 0 ? C.danger : C.success }, ecartTotal)))))),
             hasEcart && !verrouillee && (React.createElement("div", { className: "mb-3" },
                 React.createElement(Field, { label: "Motif de l'\u00E9cart (obligatoire)" },
@@ -8177,7 +8190,7 @@ function ClotureTab({ data, moi, dateInitiale, blocageCaisse, cloturesVerrouille
             erreur && (React.createElement("div", { className: "mt-3" },
                 React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreur)))),
         peutMouvement && (React.createElement(Card, { style: { marginBottom: 16 } },
-            React.createElement("div", { style: { fontWeight: 600, marginBottom: 8 } }, "Mouvement de caisse (fonds d'ouverture, sortie autoris\u00E9e...)"),
+            React.createElement("div", { style: { fontWeight: 600, marginBottom: 8 } }, "Mouvement de caisse : fonds d'ouverture, sortie autoris\u00E9e, autre"),
             verrouillee && React.createElement("div", { className: "mb-2 text-xs", style: { color: C.muted } }, "Journ\u00E9e verrouill\u00E9e \u2014 rouvre-la exceptionnellement pour ajouter un mouvement."),
             React.createElement("div", { className: "grid gap-2 sm:grid-cols-5 sm:items-end" },
                 React.createElement(Field, { label: "Moyen" },
@@ -8889,7 +8902,7 @@ function BilanJourTab({ data, nomEtablissement }) {
                 ? h("div", { className: "text-sm", style: { color: C.muted } }, "Aucun encaissement ce jour.")
                 : h("div", { className: "ceres-table-wrap" }, h("table", { className: "w-full text-sm" },
                     h("thead", null, h("tr", { className: "text-left text-xs", style: { color: C.muted } },
-                        h("th", { className: "pb-2" }, "Caissier"), h("th", { className: "pb-2 text-right" }, "Opér."),
+                        h("th", { className: "pb-2" }, "Caissier"), h("th", { className: "pb-2 text-right" }, "Paiements"),
                         ...MODES_BORDEREAU.map((m) => h("th", { key: m, className: "pb-2 text-right" }, m)),
                         h("th", { className: "pb-2 text-right" }, "Total"))),
                     h("tbody", null,
@@ -8906,7 +8919,7 @@ function BilanJourTab({ data, nomEtablissement }) {
             impayes.length === 0
                 ? h("div", { className: "text-sm", style: { color: C.muted } }, "Aucun impayé en retard.")
                 : h("div", { className: "space-y-2" }, impayes.map((l, i) => h("div", { key: i, className: "flex items-center justify-between gap-2 text-sm", style: { borderTop: i ? `1px solid ${C.border}` : "none", paddingTop: i ? 6 : 0 } },
-                    h("div", null, h("strong", null, `${l.eleve.prenom || ""} ${l.eleve.nom || ""}`.trim()), h("div", { className: "text-xs", style: { color: C.muted } }, `${l.eleve.classeNom || ""} · ${l.tranche.libelle || ""} · ${l.retard} j de retard`)),
+                    h("div", null, h("strong", null, `${l.eleve.prenom || ""} ${l.eleve.nom || ""}`.trim()), h("div", { className: "text-xs", style: { color: C.muted } }, `${l.eleve.classeNom || ""} · ${l.tranche.libelle || ""} · ${l.retard} jour${l.retard > 1 ? "s" : ""} de retard`)),
                     h(Money, { tone: C.danger }, l.tranche.reste))))),
         h(Card, null,
             h("div", { className: "mb-2", style: { fontWeight: 600, color: C.navy } }, "Partager le bilan"),
@@ -9420,7 +9433,7 @@ function AdministrationCeresTab({ moi }) {
                             const j = joursAvantEcheance(e.dateEcheance);
                             if (j === null || e.statutAbonnement !== "Actif")
                                 return null;
-                            const txt = j < -7 ? `échue depuis ${-j} j — bloquée automatiquement` : j < 0 ? `échue depuis ${-j} j (grâce : ${7 + j} j restants)` : j === 0 ? "échéance aujourd'hui" : `dans ${j} j`;
+                            const txt = j < -7 ? `échue depuis ${-j} jour${-j > 1 ? "s" : ""} — bloquée automatiquement` : j < 0 ? `échue depuis ${-j} j (grâce : ${7 + j} j restants)` : j === 0 ? "échéance aujourd'hui" : `dans ${j} j`;
                             const col = j < 0 ? C.danger : j <= 30 ? C.warn : C.muted;
                             return React.createElement("span", { className: "text-xs", style: { color: col, fontWeight: 600 } }, txt);
                         })(),
@@ -9914,7 +9927,7 @@ function UtilisateursTab({ etablissementId, moi }) {
         }
     };
     return (React.createElement("div", null,
-        React.createElement(SectionTitle, { sub: "Un compte ajout\u00E9 ici n'a pas de mot de passe \u00E0 transmettre : la personne se connecte elle-m\u00EAme avec son adresse e-mail, comme vous." }, "Utilisateurs & habilitations"),
+        React.createElement(SectionTitle, { sub: "Un compte ajout\u00E9 ici n'a pas de mot de passe \u00E0 transmettre : la personne se connecte elle-m\u00EAme avec son adresse e-mail, comme vous." }, "Utilisateurs et droits d’accès"),
         React.createElement(Card, { style: { marginBottom: 16 } },
             React.createElement("div", { className: "grid gap-3 sm:grid-cols-4 sm:items-end" },
                 React.createElement(Field, { label: "Nom" },
@@ -9993,7 +10006,7 @@ function PassationDirectionSection({ liste, moi }) {
                 modeSuccesseur === "existant"
                     ? React.createElement(Field, { label: "Successeur" },
                         React.createElement("select", { style: inputStyle, value: cibleId, onChange: (e) => setCibleId(e.target.value) },
-                            React.createElement("option", { value: "" }, "\u2014 choisir \u2014"),
+                            React.createElement("option", { value: "" }, "\u2014 Choisir \u2014"),
                             candidats.map((u) => (React.createElement("option", { key: u.id, value: u.id }, `${u.nom} (${u.role})`)))))
                     : React.createElement(React.Fragment, null,
                         React.createElement(Field, { label: "Nom du nouveau directeur" },
