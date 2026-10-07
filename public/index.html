@@ -9088,7 +9088,7 @@ function VisiteGuidee({ etat, setEtat, onAller }) {
             e.bouton && React.createElement("div", { className: "mt-3" },
                 React.createElement(GhostButton, { onClick: () => { onAller(e.bouton.onglet); setEtat({ ...etat, reduit: true }); } }, e.bouton.libelle)),
             e.abonnement && React.createElement("div", { className: "mt-2" },
-                React.createElement("a", { href: "/demander-etablissement.html", className: "text-sm underline", style: { color: C.navy, fontWeight: 600 } }, "Demander un abonnement pour mon école")),
+                React.createElement("a", { href: "/demander-etablissement.html", className: "inline-block rounded-lg px-4 py-2 text-sm", style: { background: C.gold, color: "#fff", fontWeight: 700, textDecoration: "none" } }, "Demander un abonnement pour mon école")),
             React.createElement("div", { className: "mt-3 flex items-center justify-between gap-2" },
                 React.createElement(GhostButton, { onClick: () => aller(-1), disabled: etat.etape === 0 }, "Précédent"),
                 etat.etape < n - 1
@@ -10308,14 +10308,13 @@ function LoginScreen({ onDemarrerDemo }) {
                 "V\u00E9rifiez votre bo\u00EEte mail (",
                 React.createElement("strong", null, email),
                 ") et cliquez sur le lien re\u00E7u pour vous connecter. Pensez \u00E0 regarder aussi le dossier ind\u00E9sirables/spam."))),
-            React.createElement("div", { className: "mt-4 text-center" }, React.createElement("a", { href: "/demander-etablissement.html", className: "text-sm underline", style: { color: C.navy, fontWeight: 600 } }, "Demander un abonnement pour mon \u00E9cole")),
             React.createElement("div", { className: "mt-4 text-center" }, !voirDemo ? (React.createElement("button", { onClick: ouvrirDemo, className: "text-xs underline", style: { color: C.muted } }, "Essayer l'\u00E9cole d'entra\u00EEnement sans compte")) : (React.createElement(Card, { style: { marginTop: 8 } },
                 React.createElement("div", { style: { fontWeight: 600, marginBottom: 6, fontSize: 13, color: C.ink } }, "Mode d\u00E9monstration \u2014 donn\u00E9es fictives"),
                 React.createElement("div", { className: "text-xs mb-2", style: { color: C.muted } }, "Choisissez un profil pour explorer l'application sans lien de connexion. Rien de ce que vous ferez ici n'affecte une vraie \u00E9cole."),
                 chargementDemo && React.createElement(Banner, { tone: "info" }, "Chargement..."),
                 erreurDemo && React.createElement(Banner, { tone: "danger", icon: React.createElement(AlertTriangle, { size: 16 }) }, erreurDemo),
                 personasAffichees && personasAffichees.length === 0 && React.createElement(Banner, { tone: "info" }, "Aucun profil de d\u00E9monstration n'est encore configur\u00E9 (ajoutez-en dans Utilisateurs une fois connect\u00E9 normalement)."),
-                personasAffichees && personasAffichees.length > 0 && (React.createElement("div", { className: "space-y-1" }, personasAffichees.map((p) => (React.createElement(GhostButton, { key: p.id, onClick: () => onDemarrerDemo(p, etabDemoId), style: { width: "100%", justifyContent: "flex-start" } }, `${p.nom} \u2014 ${p.role}`)))))))))));
+                personasAffichees && personasAffichees.length > 0 && (React.createElement("div", { className: "space-y-1" }, personasAffichees.map((p) => (React.createElement(GhostButton, { key: p.id, onClick: () => onDemarrerDemo(p, etabDemoId), style: { width: "100%", justifyContent: "flex-start" } }, `${p.nom} \u2014 ${p.role}`)))))))), React.createElement("div", { className: "mt-6 text-center text-sm", style: { color: C.muted } }, "Votre \u00E9cole souhaite s'abonner ? ", React.createElement("a", { href: "/demander-etablissement.html", className: "underline", style: { color: C.navy, fontWeight: 600 } }, "Faire une demande")))))
 }
 function CeresNoyauFinancier() {
     const [data, setDataRaw] = useState(emptyData());
@@ -10326,6 +10325,13 @@ function CeresNoyauFinancier() {
     const [saveErrorDetail, setSaveErrorDetail] = useState("");
     const [confirmReset, setConfirmReset] = useState(false);
     const [visite, setVisite] = useState(null); // visite guidée (démonstration) : null ou { etape, reduit }
+    useEffect(() => {
+        // La barre d'onglets défile horizontalement : on amène l'onglet actif à l'écran.
+        try {
+            const bouton = document.querySelector(".ceres-tabstrip [data-actif=\"1\"]");
+            if (bouton && bouton.scrollIntoView) bouton.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+        } catch (e) { }
+    }, [activeTab]);
     const [reinitEnCours, setReinitEnCours] = useState(false);
     const [reinitErreur, setReinitErreur] = useState("");
     const [authLoading, setAuthLoading] = useState(true);
@@ -10732,7 +10738,7 @@ function CeresNoyauFinancier() {
             React.createElement("strong", null, profil.nom),
             " (",
             profil.role,
-            "). N\u2019y saisissez aucune donn\u00E9e r\u00E9elle. ", React.createElement("span", { className: "ceres-hide-xs" }, "D\u00E9monstration publique partag\u00E9e : ne saisissez aucun nom d\u2019\u00E9l\u00E8ve, de parent ni aucun t\u00E9l\u00E9phone r\u00E9els. Tout est effac\u00E9 chaque nuit. Pour g\u00E9rer votre propre \u00E9cole, contactez CERES. "), React.createElement("a", { href: "/demander-etablissement.html", className: "underline", style: { fontWeight: 600 } }, "Demander un abonnement pour mon \u00E9cole"), " ", React.createElement("button", { onClick: () => setVisite({ etape: 0, reduit: false }), className: "rounded-lg px-3 py-1 text-sm", style: { background: C.navy, color: "#fff", fontWeight: 600, marginLeft: 4 } }, "Visite guidée (3 min)"))) : (React.createElement(Banner, { tone: "info" },
+            "). N\u2019y saisissez aucune donn\u00E9e r\u00E9elle. ", React.createElement("span", { className: "ceres-hide-xs" }, "D\u00E9monstration publique partag\u00E9e : ne saisissez aucun nom d\u2019\u00E9l\u00E8ve, de parent ni aucun t\u00E9l\u00E9phone r\u00E9els. Tout est effac\u00E9 chaque nuit. Pour g\u00E9rer votre propre \u00E9cole, contactez CERES. "), React.createElement("div", { className: "mt-2 flex flex-wrap items-center gap-x-4 gap-y-2" }, React.createElement("a", { href: "/demander-etablissement.html", className: "underline", style: { fontWeight: 600 } }, "Demander un abonnement pour mon \u00E9cole"), React.createElement("button", { onClick: () => setVisite({ etape: 0, reduit: false }), className: "rounded-lg px-3 py-1.5 text-sm", style: { background: C.navy, color: "#fff", fontWeight: 600 } }, "Visite guidée (3 min)")))) : (React.createElement(Banner, { tone: "info" },
             "Connect\u00E9 en tant que ",
             React.createElement("strong", null, profil.email),
             " \u2014 profil ",
@@ -10780,7 +10786,7 @@ function CeresNoyauFinancier() {
             React.createElement("div", { className: "ceres-tabstrip flex gap-1 overflow-x-auto border-b", style: { borderColor: C.border } }, tabsVisibles.map((t) => {
                 const Icon = t.icon;
                 const isActive = activeTab === t.id;
-                return (React.createElement("button", { key: t.id, onClick: () => setActiveTab(t.id), className: "flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-lg px-2.5 py-2.5 text-sm font-medium", style: {
+                return (React.createElement("button", { key: t.id, "data-actif": isActive ? "1" : "0", onClick: () => setActiveTab(t.id), className: "flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-lg px-2.5 py-2.5 text-sm font-medium", style: {
                         color: isActive ? C.navy : C.muted,
                         borderBottom: isActive ? `2px solid ${C.gold}` : "2px solid transparent",
                         background: isActive ? "#fff" : "transparent",
