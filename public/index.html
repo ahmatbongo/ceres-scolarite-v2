@@ -4556,7 +4556,7 @@ function ouvrirFenetreRecu() {
     const w = window.open("", "_blank");
     if (w) {
         w.document.open();
-        w.document.write("<p style=\"font-family:Arial;padding:20px\">Préparation du reçu…</p>");
+        w.document.write("<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head><body><p style=\"font-family:Arial;padding:20px\">Préparation du reçu…</p></body></html>");
         w.document.close();
     }
     return w;
@@ -4566,9 +4566,17 @@ function afficherRecuImprimable(fenetre, infos) {
     if (!fenetre || fenetre.closed) {
         return false;
     }
-    fenetre.document.open();
-    fenetre.document.write(html);
-    fenetre.document.close();
+    try {
+        // Un vrai document (adresse blob:) : le téléphone applique alors la largeur de l'écran (balise viewport).
+        const url = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
+        fenetre.location.replace(url);
+        setTimeout(() => URL.revokeObjectURL(url), 120000);
+    }
+    catch (e) {
+        fenetre.document.open();
+        fenetre.document.write(html);
+        fenetre.document.close();
+    }
     fenetre.focus();
     return true;
 }
