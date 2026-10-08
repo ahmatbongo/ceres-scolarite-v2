@@ -183,12 +183,41 @@ async function sb(path, options = {}) {
     }
     if (!res.ok) {
         const detail = await res.text().catch(() => "");
-        throw new Error(erreurLisible(res.status, detail, path));
+        const erreurHttp = new Error(erreurLisible(res.status, detail, path));
+        erreurHttp.status = res.status;
+        throw erreurHttp;
     }
     if (res.status === 204)
         return null;
     const text = await res.text();
     return text ? JSON.parse(text) : null;
+}
+// Lecture complète d'une table par paquets (Supabase ne renvoie que 1 000 lignes par requête
+// par défaut). On redemande les paquets suivants jusqu'à recevoir une page vide ; le tri sur
+// "id" garantit qu'aucune ligne n'est sautée ni lue deux fois entre deux paquets.
+async function sbTout(path) {
+    const TAILLE = 1000;
+    const chemin = /[?&]order=/.test(path)
+        ? path.replace(/([?&]order=)([^&]*)/, "$1$2,id.asc")
+        : path + "&order=id.asc";
+    const toutes = [];
+    for (let depart = 0, garde = 0; garde < 500; garde++) {
+        let page;
+        try {
+            page = await sb(chemin, { headers: { "Range-Unit": "items", Range: `${depart}-${depart + TAILLE - 1}` } });
+        }
+        catch (e) {
+            // 416 = on a dépassé la dernière ligne : fin normale de la lecture (jamais pour le 1er paquet).
+            if (e && e.status === 416 && depart > 0)
+                break;
+            throw e;
+        }
+        if (!Array.isArray(page) || page.length === 0)
+            break;
+        toutes.push(...page);
+        depart += page.length;
+    }
+    return toutes;
 }
 async function stockage(path, options = {}) {
     const tentative = async () => fetch(`${SUPABASE_URL}/storage/v1/${path}`, {
@@ -487,31 +516,31 @@ async function chargerDepuisSupabase(etablissementId) {
         lotsImportR, lotsPassageR, duplicatasRecuR, avoirsR,
         souscriptionsR
     ] = await Promise.all([
-        sb(`classes?select=*&${filtreEtablissement}`),
-        sb(`frais?select=*,classes!inner(etablissement_id)&classes.etablissement_id=eq.${etabEncode}`),
-        sb(`eleves?select=*&${filtreEtablissement}`),
-        sb(`eleve_echeances?select=*,eleves!inner(etablissement_id)&${filtreEleves}`),
-        sb(`avantages?select=*,eleves!inner(etablissement_id)&${filtreEleves}`),
-        sb(`paiements?select=*,eleves!inner(etablissement_id)&${filtreEleves}`),
-        sb(`corrections?select=*,paiements!inner(eleve_id,eleves!inner(etablissement_id))&${filtreCorrections}`),
-        sb(`clotures?select=*&${filtreEtablissement}`),
-        sb(`relances?select=*,eleves!inner(etablissement_id)&${filtreEleves}`),
-        sb(`promesses?select=*,eleves!inner(etablissement_id)&${filtreEleves}`),
-        sb(`contestations?select=*,eleves!inner(etablissement_id)&${filtreEleves}`),
-        sb(`suivis_recouvrement?select=*,eleves!inner(etablissement_id)&${filtreEleves}`),
-        sb(`mouvements_caisse?select=*&${filtreEtablissement}`),
-        sb(`lots_import?select=*&${filtreEtablissement}`),
-        sb(`lots_passage_annuel?select=*&${filtreEtablissement}`),
-        sb('duplicatas_recu?select=*'),
-        sb(`avoirs?select=*&${filtreEtablissement}`),
-        sb(`eleve_frais_optionnels?select=*,eleves!inner(etablissement_id)&${filtreEleves}`),
+        sbTout(`classes?select=*&${filtreEtablissement}`),
+        sbTout(`frais?select=*,classes!inner(etablissement_id)&classes.etablissement_id=eq.${etabEncode}`),
+        sbTout(`eleves?select=*&${filtreEtablissement}`),
+        sbTout(`eleve_echeances?select=*,eleves!inner(etablissement_id)&${filtreEleves}`),
+        sbTout(`avantages?select=*,eleves!inner(etablissement_id)&${filtreEleves}`),
+        sbTout(`paiements?select=*,eleves!inner(etablissement_id)&${filtreEleves}`),
+        sbTout(`corrections?select=*,paiements!inner(eleve_id,eleves!inner(etablissement_id))&${filtreCorrections}`),
+        sbTout(`clotures?select=*&${filtreEtablissement}`),
+        sbTout(`relances?select=*,eleves!inner(etablissement_id)&${filtreEleves}`),
+        sbTout(`promesses?select=*,eleves!inner(etablissement_id)&${filtreEleves}`),
+        sbTout(`contestations?select=*,eleves!inner(etablissement_id)&${filtreEleves}`),
+        sbTout(`suivis_recouvrement?select=*,eleves!inner(etablissement_id)&${filtreEleves}`),
+        sbTout(`mouvements_caisse?select=*&${filtreEtablissement}`),
+        sbTout(`lots_import?select=*&${filtreEtablissement}`),
+        sbTout(`lots_passage_annuel?select=*&${filtreEtablissement}`),
+        sbTout('duplicatas_recu?select=*'),
+        sbTout(`avoirs?select=*&${filtreEtablissement}`),
+        sbTout(`eleve_frais_optionnels?select=*,eleves!inner(etablissement_id)&${filtreEleves}`),
     ]);
 
     // P1-26/P136 : lectures optionnelles, elles aussi strictement bornées.
-    const derogationsCaisseR = await sb(`derogations_caisse?select=*&${filtreEtablissement}&order=accordee_le.desc`).catch(() => []);
-    const reprisesR = await sb(`reprises_soldes?select=*,eleves!inner(etablissement_id)&${filtreEleves}&annule=eq.false`).catch(() => []);
-    const lotsRepriseR = await sb(`reprises_lots?select=*&${filtreEtablissement}&order=cree_le.desc`).catch(() => []);
-    const historiqueCoordonneesR = await sb(`historique_coordonnees_eleves?select=*&${filtreEtablissement}&order=modifie_le.desc`).catch(() => []);
+    const derogationsCaisseR = await sbTout(`derogations_caisse?select=*&${filtreEtablissement}&order=accordee_le.desc`).catch(() => []);
+    const reprisesR = await sbTout(`reprises_soldes?select=*,eleves!inner(etablissement_id)&${filtreEleves}&annule=eq.false`).catch(() => []);
+    const lotsRepriseR = await sbTout(`reprises_lots?select=*&${filtreEtablissement}&order=cree_le.desc`).catch(() => []);
+    const historiqueCoordonneesR = await sbTout(`historique_coordonnees_eleves?select=*&${filtreEtablissement}&order=modifie_le.desc`).catch(() => []);
 
     // P140 — retirer les objets ajoutés uniquement pour les jointures !inner avant
     // versObjetJs(), afin qu'ils ne puissent jamais revenir dans un upsert et
@@ -7334,7 +7363,7 @@ function RapprochementManuelTab({ moi, data }) {
     }, [typePeriode, debut, fin]);
 
     const rechargerPointages = useCallback(async () => {
-        const rows = await sb(`rapprochement_pointages?select=*&etablissement_id=eq.${encodeURIComponent(moi.etablissementId)}`);
+        const rows = await sbTout(`rapprochement_pointages?select=*&etablissement_id=eq.${encodeURIComponent(moi.etablissementId)}`);
         const stock = Object.fromEntries((rows || []).map((r) => [r.paiement_id, {
             statut: r.statut,
             pointePar: r.pointe_par,
@@ -7354,7 +7383,7 @@ function RapprochementManuelTab({ moi, data }) {
         let actif = true;
         (async () => {
             try {
-                const rows = await sb(`rapprochement_pointages?select=*&etablissement_id=eq.${encodeURIComponent(moi.etablissementId)}`);
+                const rows = await sbTout(`rapprochement_pointages?select=*&etablissement_id=eq.${encodeURIComponent(moi.etablissementId)}`);
                 if (!actif) return;
                 setPointages(Object.fromEntries((rows || []).map((r) => [r.paiement_id, {
                     statut: r.statut,
@@ -7714,7 +7743,7 @@ function RapprochementImportTab({ moi, data }) {
             const filtre = filtreStatut === "Tous"
                 ? filtreEtablissement
                 : `${filtreEtablissement}&statut=eq.${encodeURIComponent(filtreStatut)}`;
-            const rows = await sb(`rapprochements?select=*&${filtre}&order=date_operation.desc`);
+            const rows = await sbTout(`rapprochements?select=*&${filtre}&order=date_operation.desc`);
             const items = (rows || []).map((row) => {
                 const item = versObjetJs("rapprochements", row);
                 return { ...item, statut: normaliserStatut(item.statut) };
@@ -7827,7 +7856,7 @@ function RapprochementImportTab({ moi, data }) {
             const absentes = ENTETES_IMPORT.filter((entete) => !colonnes.has(entete.cle)).map((entete) => entete.nom);
             if (absentes.length)
                 throw new Error(`Colonnes manquantes : ${absentes.join(", ")}.`);
-            const existants = await sb(`rapprochements?select=reference_externe&etablissement_id=eq.${encodeURIComponent(moi.etablissementId)}`);
+            const existants = await sbTout(`rapprochements?select=reference_externe&etablissement_id=eq.${encodeURIComponent(moi.etablissementId)}`);
             const referencesConnues = new Set((existants || []).map((r) => String(r.reference_externe || "").trim().toLowerCase()));
             let importees = 0, dejaImportees = 0;
             const erreurs = [], detailsDoublons = [];
