@@ -5204,6 +5204,12 @@ function CorrectionsTab({ data, moi, rafraichirDonnees }) {
     const eleve = paiement ? data.eleves.find((e) => e.id === paiement.eleveId) : null;
     const estAnnulation = type === "Annulation";
     const enAttente = data.corrections.filter((c) => c.statut === "en_attente");
+    const recuxTrouves = data.paiements.filter((p) => {
+        const el = data.eleves.find((e) => e.id === p.eleveId) || {};
+        return correspondRecherche(recherchePaiement, p.numeroRecu, el.prenom, el.nom, el.matricule, el.classeNom);
+    });
+    const rechercheActive = recherchePaiement.trim() !== "";
+    const recuxAffiches = data.paiements.filter((p) => p.id === paiementId || recuxTrouves.some((t) => t.id === p.id));
     const soumettre = async () => {
         setErreur("");
         if (!paiementId)
@@ -5264,10 +5270,11 @@ function CorrectionsTab({ data, moi, rafraichirDonnees }) {
                 React.createElement("div", { className: "grid gap-3" },
                     React.createElement(Field, { label: "Rechercher un re\u00E7u" },
                         React.createElement(ChampRecherche, { valeur: recherchePaiement, onChange: setRecherchePaiement, placeholder: "Nom, matricule, num\u00E9ro de re\u00E7u\u2026" })),
+                    rechercheActive && React.createElement("div", { className: "text-xs", style: { color: recuxTrouves.length === 0 ? C.danger : C.muted } }, recuxTrouves.length === 0 ? "Aucun re\u00E7u ne correspond \u00E0 cette recherche." : (recuxTrouves.length + (recuxTrouves.length > 1 ? " re\u00E7us trouv\u00E9s \u2014 cliquez sur celui qui convient dans la liste ci-dessous." : " re\u00E7u trouv\u00E9 \u2014 cliquez dessus dans la liste ci-dessous."))),
                     React.createElement(Field, { label: "Re\u00E7u concern\u00E9" },
-                        React.createElement("select", { style: inputStyle, value: paiementId, onChange: (e) => setPaiementId(e.target.value) },
+                        React.createElement("select", { style: inputStyle, size: rechercheActive ? Math.min(Math.max(recuxAffiches.length + 1, 3), 8) : undefined, value: paiementId, onChange: (e) => setPaiementId(e.target.value) },
                             React.createElement("option", { value: "" }, "\u2014 Choisir un re\u00E7u \u2014"),
-                            data.paiements.filter((p) => p.id === paiementId || correspondRecherche(recherchePaiement, p.numeroRecu, (data.eleves.find((e) => e.id === p.eleveId) || {}).prenom, (data.eleves.find((e) => e.id === p.eleveId) || {}).nom, (data.eleves.find((e) => e.id === p.eleveId) || {}).matricule)).map((p) => {
+                            recuxAffiches.map((p) => {
                                 const el = data.eleves.find((e) => e.id === p.eleveId);
                                 return (React.createElement("option", { key: p.id, value: p.id },
                                     p.numeroRecu,
@@ -5943,6 +5950,7 @@ function PassageAnnuelTab({ data, moi, rafraichirDonnees }) {
 function RecouvrementTab({ data, moi, rafraichirDonnees, cibleInitiale, onCibleConsommee, nomEtablissement }) {
     const [filtreClasse, setFiltreClasse] = useState("");
     const [filtreNature, setFiltreNature] = useState("");
+    const [rechercheImpaye, setRechercheImpaye] = useState("");
     const [ligneOuverte, setLigneOuverte] = useState(null); // echeanceId en cours de relance/promesse
     const [ton, setTon] = useState("Courtois");
     const [messageCopie, setMessageCopie] = useState(false);
@@ -5986,6 +5994,7 @@ function RecouvrementTab({ data, moi, rafraichirDonnees, cibleInitiale, onCibleC
     const impayes = listeImpayes(data)
         .filter((l) => !filtreClasse || l.eleve.classeId === filtreClasse)
         .filter((l) => !filtreNature || natureDeFrais(l.tranche.libelle) === filtreNature)
+        .filter((l) => correspondRecherche(rechercheImpaye, l.eleve.prenom, l.eleve.nom, l.eleve.matricule, l.eleve.classeNom, l.eleve.respNom))
         .sort((a, b) => b.retard - a.retard || b.tranche.reste - a.tranche.reste);
     const ligne = impayes.find((l) => l.tranche.echeanceId === ligneOuverte);
     const messageGenere = ligne
@@ -6159,6 +6168,8 @@ function RecouvrementTab({ data, moi, rafraichirDonnees, cibleInitiale, onCibleC
         React.createElement(SectionTitle, { sub: "Une \u00E9ch\u00E9ance future n'est jamais un impay\u00E9. Copier un message ne l'envoie pas \u2014 seule une confirmation explicite journalise la relance." }, "Recouvrement"),
         React.createElement(Card, { style: { marginBottom: 16 } },
             React.createElement("div", { className: "mb-3 flex flex-wrap items-center gap-2" },
+                React.createElement(Field, { label: "Rechercher un \u00E9l\u00E8ve" },
+                    React.createElement("div", { style: { width: 260 } }, React.createElement(ChampRecherche, { valeur: rechercheImpaye, onChange: setRechercheImpaye, placeholder: "Nom, pr\u00E9nom, matricule ou classe\u2026" }))),
                 React.createElement(Field, { label: "Filtrer par classe" },
                     React.createElement("select", { style: { ...inputStyle, width: 220 }, value: filtreClasse, onChange: (e) => setFiltreClasse(e.target.value) },
                         React.createElement("option", { value: "" }, "Toutes les classes"),
