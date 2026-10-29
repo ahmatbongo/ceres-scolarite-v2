@@ -4589,33 +4589,73 @@ ${apercu ? "" : '<div class="barre"><button onclick="window.print()">Imprimer / 
 </div>
 </body></html>`;
 }
-// fenetre : à ouvrir SYNCHRONEMENT au clic (sinon le navigateur bloque la fenêtre) ;
-// on la passe ici une fois les données prêtes.
+// Reçu affiché DANS la page (calque plein écran) avec « Retour au dossier » :
+// plus de nouvel onglet, donc on revient toujours à l'endroit d'où l'on vient.
+// L'objet renvoyé imite une fenêtre (closed, close, focus) pour les appelants existants.
 function ouvrirFenetreRecu() {
-    const w = window.open("", "_blank");
-    if (w) {
-        w.document.open();
-        w.document.write("<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head><body><p style=\"font-family:Arial;padding:20px\">Préparation du reçu…</p></body></html>");
-        w.document.close();
-    }
-    return w;
+    const ancien = document.getElementById("ceres-recu-calque");
+    if (ancien) ancien.remove();
+    const calque = document.createElement("div");
+    calque.id = "ceres-recu-calque";
+    calque.setAttribute("role", "dialog");
+    calque.setAttribute("aria-label", "Reçu");
+    calque.style.cssText = "position:fixed;inset:0;z-index:10000;display:flex;flex-direction:column;background:#f4f1ea";
+    const barre = document.createElement("div");
+    barre.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 14px;background:#16304a;color:#fff;font-family:Inter,Arial,sans-serif;flex:none";
+    const bRetour = document.createElement("button");
+    bRetour.type = "button";
+    bRetour.textContent = "← Retour au dossier";
+    bRetour.style.cssText = "background:#fff;color:#16304a;border:0;border-radius:8px;padding:8px 14px;font-size:15px;font-weight:600;cursor:pointer";
+    const bImprimer = document.createElement("button");
+    bImprimer.type = "button";
+    bImprimer.textContent = "Imprimer / PDF";
+    bImprimer.style.cssText = "background:transparent;color:#fff;border:1px solid rgba(255,255,255,.6);border-radius:8px;padding:8px 14px;font-size:14px;cursor:pointer";
+    bImprimer.disabled = true;
+    barre.append(bRetour, bImprimer);
+    const cadre = document.createElement("iframe");
+    cadre.title = "Reçu";
+    cadre.style.cssText = "flex:1;width:100%;border:0;background:#fff";
+    cadre.srcdoc = "<!doctype html><html><head><meta charset=\"utf-8\"></head><body><p style=\"font-family:Arial;padding:20px\">Préparation du reçu…</p></body></html>";
+    calque.append(barre, cadre);
+    document.body.appendChild(calque);
+    const debordementAvant = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    let historique = false;
+    const fen = {
+        closed: false,
+        _cadre: cadre,
+        _bImprimer: bImprimer,
+        _retirer() {
+            if (fen.closed) return;
+            fen.closed = true;
+            window.removeEventListener("popstate", surRetourNavigateur);
+            calque.remove();
+            document.body.style.overflow = debordementAvant;
+        },
+        close() {
+            // Si une entrée d'historique a été ajoutée, on la consomme : le bouton « Retour » du téléphone reste cohérent.
+            if (historique && !fen.closed) { historique = false; history.back(); }
+            fen._retirer();
+        },
+        focus() { try { bRetour.focus(); } catch (e) { } },
+    };
+    // Bouton « Retour » du navigateur ou du téléphone : ferme le reçu au lieu de quitter l'application.
+    function surRetourNavigateur() { historique = false; fen._retirer(); }
+    try { history.pushState({ ceresRecu: true }, ""); historique = true; window.addEventListener("popstate", surRetourNavigateur); } catch (e) { }
+    bRetour.addEventListener("click", () => fen.close());
+    bImprimer.addEventListener("click", () => {
+        try { cadre.contentWindow.focus(); cadre.contentWindow.print(); } catch (e) { alert("Impression impossible depuis cet appareil. Essayez depuis un ordinateur."); }
+    });
+    return fen;
 }
 function afficherRecuImprimable(fenetre, infos) {
-    const html = htmlRecuImprimable(infos);
-    if (!fenetre || fenetre.closed) {
+    if (!fenetre || fenetre.closed || !fenetre._cadre) {
         return false;
     }
-    try {
-        // Un vrai document (adresse blob:) : le téléphone applique alors la largeur de l'écran (balise viewport).
-        const url = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
-        fenetre.location.replace(url);
-        setTimeout(() => URL.revokeObjectURL(url), 120000);
-    }
-    catch (e) {
-        fenetre.document.open();
-        fenetre.document.write(html);
-        fenetre.document.close();
-    }
+    // La barre du calque porte déjà le bouton « Imprimer » : on masque celle du reçu.
+    const html = htmlRecuImprimable(infos).replace("</style>", "  .barre { display: none !important; }\n</style>");
+    fenetre._cadre.srcdoc = html;
+    fenetre._bImprimer.disabled = false;
     fenetre.focus();
     return true;
 }
@@ -4632,7 +4672,7 @@ function ReceiptCard({ paiement, eleve, classe, etablissement, modeDemo, resteAp
     const imprimer = () => {
         const w = ouvrirFenetreRecu();
         if (!afficherRecuImprimable(w, { paiement, eleve, classe, nomEtablissement: nomEtab, identite: identitePourRecu(etablissement, modeDemo), duplicata: false, resteApres })) {
-            alert("Votre navigateur a bloqué la fenêtre du reçu. Autorisez les fenêtres pop-up pour ce site, puis réessayez.");
+            alert("Le reçu n'a pas pu s'afficher. Réessayez.");
         }
     };
     return (React.createElement("div", { className: "rounded-lg p-4", style: { border: `1.5px dashed ${C.goldLight}`, background: "#fffdf8" } },
@@ -5149,7 +5189,7 @@ function RecusTab({ data, moi, rafraichirDonnees, etablissement, modeDemo }) {
     const imprimerOriginal = (p) => {
         const w = ouvrirFenetreRecu();
         if (!afficherRecuImprimable(w, infosRecu(p, false))) {
-            setMessageDuplicata("Erreur : le navigateur a bloqué la fenêtre du reçu. Autorisez les fenêtres pop-up pour ce site, puis réessayez.");
+            setMessageDuplicata("Erreur : le reçu n'a pas pu s'afficher. Réessayez.");
         }
     };
     const demanderDuplicata = async (paiementId, numeroRecu) => {
